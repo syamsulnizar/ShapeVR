@@ -21,9 +21,9 @@ MonoBehaviour:
   renderModelSupport: 0
   trackedKeyboardSupport: 0
   bodyTrackingSupport: 1
-  faceTrackingSupport: 0
+  faceTrackingSupport: 1
   eyeTrackingSupport: 0
-  colocationSessionSupport: 0
+  colocationSessionSupport: 1
   sceneSupport: 2
   boundaryVisibilitySupport: 0
   disableBackups: 1
