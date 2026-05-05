@@ -1,20 +1,27 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using TMPro;
+using Unity.Services.Authentication;
+using Unity.Services.Core;
+using Unity.Services.Lobbies;
+using Unity.Services.Lobbies.Models;
+using Unity.Services.Relay;
 using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
+
+#if META_PLATFORM_SDK_DEFINED
+using Meta.XR.MultiplayerBlocks.Shared;
+#endif
 
 /// <summary>
-/// LobbyManager — scene loading hanya terjadi ketika SEMUA player sudah poke button.
-/// Menggunakan NetworkBehaviour + ServerRpc agar server bisa track siapa yang sudah poke.
-///
-/// PENTING: Script ini butuh NetworkObject di GameObject-nya karena pakai ServerRpc.
-///          Tambahkan kembali komponen NetworkObject di Inspector.
-///          Settings NetworkObject:
-///            - Synchronize Transform: OFF
-///            - Scene Migration Synchronization: OFF
-///            - Spawn With Observers: ON
+/// Menggantikan [BuildingBlock] Auto Matchmaking.
+/// Koneksi dimulai saat poke, tapi MENUNGGU platform entitlement selesai
+/// sebelum StartHost/StartClient agar AvatarSpawnerNGO tidak race condition.
 /// </summary>
-public class LobbyManager : NetworkBehaviour
+public class LobbyManager : MonoBehaviour
 {
     [Header("Scene Settings")]
     [SerializeField] private string gameSceneName = "GameScene";
@@ -25,14 +32,59 @@ public class LobbyManager : NetworkBehaviour
 
     [Header("Lobby Settings")]
     [SerializeField] private int maxPlayers = 2;
+    [SerializeField] private string lobbyName = "ShapeVRLobby";
 
-    // Hanya valid di server
-    private int pokedCount = 0;
-    private bool loadingStarted = false;
+    private const string JoinCodeKey = "joinCode";
+    private Lobby _connectedLobby;
+    private bool _pokePressed = false;
+    private bool _entitlementReady = false;
+    private bool _ugsReady = false;
 
-    public override void OnNetworkSpawn()
+    // ------------------------------------------------------------------
+    // Start: init UGS + tunggu entitlement — TANPA connect network
+    // ------------------------------------------------------------------
+
+    private async void Start()
     {
+        // 1. Init Unity Gaming Services
+        try
+        {
+            await UnityServices.InitializeAsync();
+#if UNITY_EDITOR
+            AuthenticationService.Instance.ClearSessionToken();
+#endif
+            await AuthenticationService.Instance.SignInAnonymouslyAsync();
+            _ugsReady = true;
+            Debug.Log($"[LobbyManager] UGS ready. PlayerId: {AuthenticationService.Instance.PlayerId}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[LobbyManager] UGS init failed: {e.Message}");
+            SetStatus("UGS error. Please restart.");
+            return;
+        }
+
+        // 2. Tunggu Platform entitlement (untuk AvatarSpawnerNGO)
+        // [BuildingBlock] Platform Init sudah memanggil GetEntitlementInformation di Awake.
+        // Kita tunggu via callback yang sama.
+#if META_PLATFORM_SDK_DEFINED
+        SetStatus("Checking platform...");
+        PlatformInit.GetEntitlementInformation(OnEntitlementDone);
+#else
+        // Tidak ada Platform SDK, langsung ready
+        _entitlementReady = true;
+        SetStatus("Poke the button to find a match");
+#endif
     }
+
+#if META_PLATFORM_SDK_DEFINED
+    private void OnEntitlementDone(PlatformInfo info)
+    {
+        _entitlementReady = true;
+        Debug.Log($"[LobbyManager] Entitlement done. Entitled: {info.IsEntitled}");
+        SetStatus("Poke the button to find a match");
+    }
+#endif
 
     // ------------------------------------------------------------------
     // Dipanggil PokeInteractable → When Select ()
@@ -40,44 +92,154 @@ public class LobbyManager : NetworkBehaviour
 
     public void OnPokePlay()
     {
-        if (pokeButton != null) pokeButton.SetActive(false);
-        SetStatus("Waiting for opponent...");
+        if (_pokePressed) return;
 
-        // Kirim ke server bahwa player ini sudah poke
-        ReportPokeServerRpc();
+        if (!_ugsReady)
+        {
+            SetStatus("Still initializing, please wait...");
+            return;
+        }
+
+        _pokePressed = true;
+        if (pokeButton != null) pokeButton.SetActive(false);
+
+        StartCoroutine(WaitForEntitlementThenConnect());
+    }
+
+    private IEnumerator WaitForEntitlementThenConnect()
+    {
+        // Tunggu entitlement selesai (max 10 detik)
+        float timeout = 10f;
+        float elapsed = 0f;
+
+        while (!_entitlementReady && elapsed < timeout)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (!_entitlementReady)
+        {
+            Debug.LogWarning("[LobbyManager] Entitlement timeout, proceeding anyway.");
+        }
+
+        SetStatus("Searching for match...");
+
+        // Sekarang aman untuk connect — entitlement sudah selesai
+        // AvatarSpawnerNGO.OnNetworkSpawn akan dipanggil SETELAH _platformInfo terisi
+        ConnectAsync();
     }
 
     // ------------------------------------------------------------------
-    // ServerRpc — diterima dan dieksekusi di server
+    // Connect via Relay + Lobby
     // ------------------------------------------------------------------
 
-    [ServerRpc(RequireOwnership = false)]
-    private void ReportPokeServerRpc(ServerRpcParams rpcParams = default)
+    private async void ConnectAsync()
     {
-        pokedCount++;
-        int connected = NetworkManager.Singleton.ConnectedClientsIds.Count;
-
-        Debug.Log($"[LobbyManager] Poke reported. Poked: {pokedCount}, Connected: {connected}/{maxPlayers}");
-
-        // Update status di semua client
-        UpdateStatusClientRpc(pokedCount, connected);
-
-        // Load hanya jika semua player yang connect sudah poke
-        if (!loadingStarted && pokedCount >= maxPlayers && connected >= maxPlayers)
+        try
         {
-            loadingStarted = true;
+            _connectedLobby = await TryJoinOrCreate();
+
+            bool isHost = _connectedLobby.HostId == AuthenticationService.Instance.PlayerId;
+
+            if (isHost)
+            {
+                Debug.Log("[LobbyManager] Started as HOST");
+                StartCoroutine(HeartbeatLobby(_connectedLobby.Id, 15f));
+                SetStatus($"Waiting for opponent... (1/{maxPlayers})");
+                NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+            }
+            else
+            {
+                Debug.Log("[LobbyManager] Started as CLIENT");
+                SetStatus("Joined! Waiting for game to start...");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[LobbyManager] Matchmaking failed: {e.Message}");
+            SetStatus("Connection failed. Try again.");
+            _pokePressed = false;
+            if (pokeButton != null) pokeButton.SetActive(true);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Host: tunggu semua player connect
+    // ------------------------------------------------------------------
+
+    private void OnClientConnected(ulong clientId)
+    {
+        int connected = NetworkManager.Singleton.ConnectedClientsIds.Count;
+        Debug.Log($"[LobbyManager] Client {clientId} connected. {connected}/{maxPlayers}");
+        SetStatus($"Players: {connected}/{maxPlayers}");
+
+        if (connected >= maxPlayers)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
             StartCoroutine(LoadGameScene(1.5f));
         }
     }
 
     // ------------------------------------------------------------------
-    // ClientRpc — update UI di semua client
+    // Relay + Lobby logic
     // ------------------------------------------------------------------
 
-    [ClientRpc]
-    private void UpdateStatusClientRpc(int poked, int connected)
+    private async Task<Lobby> TryJoinOrCreate()
     {
-        SetStatus($"Players ready: {poked} / {maxPlayers}\nWaiting for opponent...");
+        try { return await JoinLobby(); }
+        catch (LobbyServiceException e) when (e.Reason == LobbyExceptionReason.NoOpenLobbies)
+        {
+            Debug.Log("[LobbyManager] No lobbies, creating new.");
+            return await CreateLobby();
+        }
+    }
+
+    private async Task<Lobby> JoinLobby()
+    {
+        var lobby = await LobbyService.Instance.QuickJoinLobbyAsync();
+        var join = await RelayService.Instance.JoinAllocationAsync(lobby.Data[JoinCodeKey].Value);
+
+        FindObjectOfType<UnityTransport>().SetClientRelayData(
+            join.RelayServer.IpV4, (ushort)join.RelayServer.Port,
+            join.AllocationIdBytes, join.Key,
+            join.ConnectionData, join.HostConnectionData);
+
+        NetworkManager.Singleton.StartClient();
+        return lobby;
+    }
+
+    private async Task<Lobby> CreateLobby()
+    {
+        var alloc = await RelayService.Instance.CreateAllocationAsync(maxPlayers);
+        var joinCode = await RelayService.Instance.GetJoinCodeAsync(alloc.AllocationId);
+
+        var lobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers,
+            new CreateLobbyOptions
+            {
+                IsPrivate = false,
+                Data = new Dictionary<string, DataObject>
+                {
+                    { JoinCodeKey, new DataObject(DataObject.VisibilityOptions.Public, joinCode) }
+                }
+            });
+
+        FindObjectOfType<UnityTransport>().SetHostRelayData(
+            alloc.RelayServer.IpV4, (ushort)alloc.RelayServer.Port,
+            alloc.AllocationIdBytes, alloc.Key, alloc.ConnectionData);
+
+        NetworkManager.Singleton.StartHost();
+        return lobby;
+    }
+
+    private IEnumerator HeartbeatLobby(string lobbyId, float interval)
+    {
+        var wait = new WaitForSecondsRealtime(interval);
+        while (_connectedLobby != null)
+        {
+            LobbyService.Instance.SendHeartbeatPingAsync(lobbyId);
+            yield return wait;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -86,24 +248,32 @@ public class LobbyManager : NetworkBehaviour
 
     private IEnumerator LoadGameScene(float delay)
     {
-        NotifyLoadingClientRpc();
+        SetStatus("Match found! Loading...");
         yield return new WaitForSeconds(delay);
-
         NetworkManager.Singleton.SceneManager.LoadScene(
             gameSceneName,
-            UnityEngine.SceneManagement.LoadSceneMode.Single
-        );
+            UnityEngine.SceneManagement.LoadSceneMode.Single);
     }
 
-    [ClientRpc]
-    private void NotifyLoadingClientRpc()
+    // ------------------------------------------------------------------
+    // Cleanup + Helper
+    // ------------------------------------------------------------------
+
+    private void OnDestroy()
     {
-        SetStatus("Match found! Loading...");
-    }
+        if (NetworkManager.Singleton != null)
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
 
-    // ------------------------------------------------------------------
-    // Helper
-    // ------------------------------------------------------------------
+        if (_connectedLobby == null) return;
+        try
+        {
+            if (_connectedLobby.HostId == AuthenticationService.Instance.PlayerId)
+                LobbyService.Instance.DeleteLobbyAsync(_connectedLobby.Id);
+            else
+                LobbyService.Instance.RemovePlayerAsync(_connectedLobby.Id, AuthenticationService.Instance.PlayerId);
+        }
+        catch (Exception e) { Debug.Log($"[LobbyManager] Cleanup: {e.Message}"); }
+    }
 
     private void SetStatus(string message)
     {
