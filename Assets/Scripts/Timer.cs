@@ -8,6 +8,13 @@ public class Timer : MonoBehaviour
     private bool started = false;
     private float time = 0;
     public UnityEvent OnTimeUp;
+    public bool startOnAwake = false;
+
+    private void Start()
+    {
+        if (startOnAwake)
+            StartTimer();
+    }
 
     private void Update()
     {
