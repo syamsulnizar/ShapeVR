@@ -1,0 +1,21 @@
+Flying Sci Fi Island City
+
+1 island + 55 unique interior assets
+
+One texture (2048/1024/512/256/128px) and 2 materials are used for the whole set
+
+Technical details:
+
+116 k triangles 
+
+61 k faces
+
+68k verts  
+
+Interior props: crystals, plants, houses, skyscrapers, solar stations, spaceships, planetarium, billboards, playground, streetlights and much more! You can create your own models with this set!
+
+My original concept was used to create models.
+
+Can be used for games, rendering, advertising. The pack allows you to build any interior to your liking!
+
+If you have any questions feel free to contact me

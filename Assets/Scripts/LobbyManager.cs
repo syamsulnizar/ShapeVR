@@ -9,6 +9,7 @@ using Unity.Services.Core;
 using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
 using Unity.Services.Relay;
+using Unity.Services.Relay.Models;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 
@@ -17,48 +18,58 @@ using Meta.XR.MultiplayerBlocks.Shared;
 #endif
 
 /// <summary>
-/// Menggantikan [BuildingBlock] Auto Matchmaking.
-/// Koneksi dimulai saat poke, tapi MENUNGGU platform entitlement selesai
-/// sebelum StartHost/StartClient agar AvatarSpawnerNGO tidak race condition.
+/// Lobby manager dengan matchmaking by room-type. Player tekan salah satu dari
+/// 4 tombol (Passthrough, Virtual Mic Off, Virtual Mic On, Virtual Choose Room).
+/// Player hanya match dengan yang memilih tombol SAMA. Max 2 per room.
 /// </summary>
 public class LobbyManager : MonoBehaviour
 {
     [Header("Scene Settings")]
-    [SerializeField] private string gameSceneName = "GameScene";
+    [SerializeField] private string passthroughScene = "Passthrough";
+    [SerializeField] private string virtualMicOnScene = "Virtual Mic On";
+    [SerializeField] private string virtualMicOffScene = "Virtual Mic Off";
+    [SerializeField] private string virtualChooseRoomScene = "Virtual Choose Room";
 
     [Header("UI References")]
     [SerializeField] private TextMeshPro statusText;
-    [SerializeField] private GameObject pokeButton;
+    [Tooltip("Parent container untuk semua tombol room. Di-hide saat loading UGS dan saat sudah dalam antrian.")]
+    [SerializeField] private GameObject roomButtonsRoot;
 
     [Header("Lobby Settings")]
     [SerializeField] private int maxPlayers = 2;
     [SerializeField] private string lobbyName = "ShapeVRLobby";
 
-    private const string JoinCodeKey = "joinCode";
+    public const string RoomTypePassthrough = "Passthrough";
+    public const string RoomTypeVirtualMicOff = "VirtualMicOff";
+    public const string RoomTypeVirtualMicOn = "VirtualMicOn";
+    public const string RoomTypeVirtualChooseRoom = "VirtualChooseRoom";
+
+    private const string LobbyDataRoomTypeKey = "roomType";
+    private const string LobbyDataJoinCodeKey = "joinCode";
+
     private Lobby _connectedLobby;
     private bool _pokePressed = false;
     private bool _entitlementReady = false;
     private bool _ugsReady = false;
-
-    // ------------------------------------------------------------------
-    // Start: init UGS + tunggu entitlement — TANPA connect network
-    // ------------------------------------------------------------------
+    private string _selectedRoomType;
+    private string _selectedSceneName;
+    private Coroutine _pollCoroutine;
+    private Coroutine _heartbeatCoroutine;
 
     private async void Start()
     {
-        // 0. DEFENSIVE: kalau ada session NGO lama yang masih hidup (mis. user
-        // pulang ke lobby dengan cara tidak bersih), shutdown dulu agar StartHost/
-        // StartClient nanti tidak fail dengan "already listening".
+        SetRoomButtonsVisible(false);
+        SetStatus("Loading...");
+
         var nm = NetworkManager.Singleton;
         if (nm != null && (nm.IsListening || nm.IsServer || nm.IsClient))
         {
             Debug.Log("[LobbyManager] Stale NetworkManager detected on lobby load \u2014 shutting down.");
             nm.Shutdown();
             for (int i = 0; i < 30 && nm.ShutdownInProgress; i++)
-                await System.Threading.Tasks.Task.Yield();
+                await Task.Yield();
         }
 
-        // 1. Init Unity Gaming Services (idempotent \u2014 aman dipanggil ulang setiap balik lobby)
         try
         {
             if (UnityServices.State != ServicesInitializationState.Initialized)
@@ -66,8 +77,6 @@ public class LobbyManager : MonoBehaviour
                 await UnityServices.InitializeAsync();
             }
 #if UNITY_EDITOR
-            // Hanya clear session di editor saat memang belum signed in,
-            // dan hanya kalau UnityServices baru saja initialized di sesi ini.
             if (!AuthenticationService.Instance.IsSignedIn)
                 AuthenticationService.Instance.ClearSessionToken();
 #endif
@@ -80,7 +89,6 @@ public class LobbyManager : MonoBehaviour
         }
         catch (Exception e)
         {
-            // "already signed in" race condition \u2014 tetap anggap UGS ready.
             if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
             {
                 _ugsReady = true;
@@ -94,16 +102,12 @@ public class LobbyManager : MonoBehaviour
             }
         }
 
-        // 2. Tunggu Platform entitlement (untuk AvatarSpawnerNGO)
 #if META_PLATFORM_SDK_DEFINED
-        // Kalau sudah pernah Succeeded di sesi sebelumnya (lobby kedua dst.),
-        // callback baru tidak fire \u2014 langsung anggap ready.
         if (Meta.XR.MultiplayerBlocks.Shared.PlatformInit.status ==
             Meta.XR.MultiplayerBlocks.Shared.BBPlatformInitStatus.Succeeded)
         {
             _entitlementReady = true;
-            SetStatus("Poke the button to find a match");
-            Debug.Log("[LobbyManager] PlatformInit already Succeeded \u2014 skipping callback wait.");
+            ShowRoomSelection();
         }
         else
         {
@@ -112,7 +116,7 @@ public class LobbyManager : MonoBehaviour
         }
 #else
         _entitlementReady = true;
-        SetStatus("Poke the button to find a match");
+        ShowRoomSelection();
 #endif
     }
 
@@ -120,16 +124,27 @@ public class LobbyManager : MonoBehaviour
     private void OnEntitlementDone(PlatformInfo info)
     {
         _entitlementReady = true;
-        Debug.Log($"[LobbyManager] Entitlement done. Entitled: {info.IsEntitled}");
-        SetStatus("Poke the button to find a match");
+        ShowRoomSelection();
     }
 #endif
 
-    // ------------------------------------------------------------------
-    // Dipanggil PokeInteractable → When Select ()
-    // ------------------------------------------------------------------
+    private void ShowRoomSelection()
+    {
+        SetStatus("Choose a room");
+        SetRoomButtonsVisible(true);
+    }
 
-    public void OnPokePlay()
+    private void SetRoomButtonsVisible(bool visible)
+    {
+        if (roomButtonsRoot != null) roomButtonsRoot.SetActive(visible);
+    }
+
+    public void OnPokePassthrough()        => StartMatchmaking(RoomTypePassthrough,        passthroughScene);
+    public void OnPokeVirtualMicOff()      => StartMatchmaking(RoomTypeVirtualMicOff,      virtualMicOffScene);
+    public void OnPokeVirtualMicOn()       => StartMatchmaking(RoomTypeVirtualMicOn,       virtualMicOnScene);
+    public void OnPokeVirtualChooseRoom()  => StartMatchmaking(RoomTypeVirtualChooseRoom,  virtualChooseRoomScene);
+
+    private void StartMatchmaking(string roomType, string sceneName)
     {
         if (_pokePressed) return;
 
@@ -148,17 +163,15 @@ public class LobbyManager : MonoBehaviour
         }
 
         _pokePressed = true;
-        if (pokeButton != null) pokeButton.SetActive(false);
-
+        _selectedRoomType = roomType;
+        _selectedSceneName = sceneName;
+        SetRoomButtonsVisible(false);
         StartCoroutine(WaitForEntitlementThenConnect());
     }
 
     private IEnumerator WaitForEntitlementThenConnect()
     {
 #if META_PLATFORM_SDK_DEFINED
-        // Kalau PlatformInit sudah Succeeded dari sesi sebelumnya (app pernah
-        // masuk lobby & game lalu balik), callback GetEntitlementInformation
-        // mungkin tidak fire ulang. Skip wait \u2014 kita sudah entitled.
         if (Meta.XR.MultiplayerBlocks.Shared.PlatformInit.status ==
             Meta.XR.MultiplayerBlocks.Shared.BBPlatformInitStatus.Succeeded)
         {
@@ -166,10 +179,8 @@ public class LobbyManager : MonoBehaviour
         }
 #endif
 
-        // Tunggu entitlement selesai (max 5 detik \u2014 dipendekan dari 10s)
         float timeout = 5f;
         float elapsed = 0f;
-
         while (!_entitlementReady && elapsed < timeout)
         {
             elapsed += Time.deltaTime;
@@ -181,158 +192,249 @@ public class LobbyManager : MonoBehaviour
             Debug.LogWarning("[LobbyManager] Entitlement timeout, proceeding anyway.");
         }
 
-        SetStatus("Searching for match...");
+        SetStatus($"Searching for {_selectedRoomType}...");
         ConnectAsync();
     }
-
-    // ------------------------------------------------------------------
-    // Connect via Relay + Lobby
-    // ------------------------------------------------------------------
 
     private async void ConnectAsync()
     {
         try
         {
-            _connectedLobby = await TryJoinOrCreate();
+            var existingLobbyId = await TryFindLobbyAsync(_selectedRoomType);
 
-            bool isHost = _connectedLobby.HostId == AuthenticationService.Instance.PlayerId;
-
-            if (isHost)
+            if (!string.IsNullOrEmpty(existingLobbyId))
             {
-                Debug.Log("[LobbyManager] Started as HOST");
-                StartCoroutine(HeartbeatLobby(_connectedLobby.Id, 15f));
-                SetStatus($"Waiting for opponent... (1/{maxPlayers})");
-                NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+                Debug.Log($"[LobbyManager] Found existing lobby {existingLobbyId} for {_selectedRoomType} \u2014 joining as client.");
+                await JoinExistingLobbyAsync(existingLobbyId);
             }
             else
             {
-                Debug.Log("[LobbyManager] Started as CLIENT");
-                SetStatus("Joined! Waiting for game to start...");
+                Debug.Log($"[LobbyManager] No lobby found for {_selectedRoomType} \u2014 creating as host.");
+                await CreateLobbyAsHostAsync();
             }
         }
         catch (Exception e)
         {
-            Debug.LogError($"[LobbyManager] Matchmaking failed: {e.Message}");
-            SetStatus("Connection failed. Try again.");
-            _pokePressed = false;
-            if (pokeButton != null) pokeButton.SetActive(true);
+            Debug.LogError($"[LobbyManager] ConnectAsync failed: {e.Message}");
+            SetStatus($"Match failed: {e.Message}");
         }
     }
 
-    // ------------------------------------------------------------------
-    // Host: tunggu semua player connect
-    // ------------------------------------------------------------------
-
-    private void OnClientConnected(ulong clientId)
+    private async Task<string> TryFindLobbyAsync(string roomType)
     {
-        int connected = NetworkManager.Singleton.ConnectedClientsIds.Count;
-        Debug.Log($"[LobbyManager] Client {clientId} connected. {connected}/{maxPlayers}");
-        SetStatus($"Players: {connected}/{maxPlayers}");
-
-        if (connected >= maxPlayers)
+        var queryOptions = new QueryLobbiesOptions
         {
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
-            StartCoroutine(LoadGameScene(1.5f));
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Relay + Lobby logic
-    // ------------------------------------------------------------------
-
-    private async Task<Lobby> TryJoinOrCreate()
-    {
-        try { return await JoinLobby(); }
-        catch (LobbyServiceException e) when (e.Reason == LobbyExceptionReason.NoOpenLobbies)
-        {
-            Debug.Log("[LobbyManager] No lobbies, creating new.");
-            return await CreateLobby();
-        }
-    }
-
-    private async Task<Lobby> JoinLobby()
-    {
-        var lobby = await LobbyService.Instance.QuickJoinLobbyAsync();
-        var join = await RelayService.Instance.JoinAllocationAsync(lobby.Data[JoinCodeKey].Value);
-
-        FindObjectOfType<UnityTransport>().SetClientRelayData(
-            join.RelayServer.IpV4, (ushort)join.RelayServer.Port,
-            join.AllocationIdBytes, join.Key,
-            join.ConnectionData, join.HostConnectionData);
-
-        NetworkManager.Singleton.StartClient();
-        return lobby;
-    }
-
-    private async Task<Lobby> CreateLobby()
-    {
-        var alloc = await RelayService.Instance.CreateAllocationAsync(maxPlayers);
-        var joinCode = await RelayService.Instance.GetJoinCodeAsync(alloc.AllocationId);
-
-        var lobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers,
-            new CreateLobbyOptions
+            Count = 25,
+            Filters = new List<QueryFilter>
             {
-                IsPrivate = false,
-                Data = new Dictionary<string, DataObject>
-                {
-                    { JoinCodeKey, new DataObject(DataObject.VisibilityOptions.Public, joinCode) }
-                }
-            });
+                new QueryFilter(
+                    field: QueryFilter.FieldOptions.S1,
+                    op: QueryFilter.OpOptions.EQ,
+                    value: roomType),
+                new QueryFilter(
+                    field: QueryFilter.FieldOptions.AvailableSlots,
+                    op: QueryFilter.OpOptions.GT,
+                    value: "0"),
+            }
+        };
 
-        FindObjectOfType<UnityTransport>().SetHostRelayData(
-            alloc.RelayServer.IpV4, (ushort)alloc.RelayServer.Port,
-            alloc.AllocationIdBytes, alloc.Key, alloc.ConnectionData);
+        var response = await LobbyService.Instance.QueryLobbiesAsync(queryOptions);
+        if (response == null || response.Results == null || response.Results.Count == 0)
+            return null;
 
-        NetworkManager.Singleton.StartHost();
-        return lobby;
+        return response.Results[0].Id;
     }
 
-    private IEnumerator HeartbeatLobby(string lobbyId, float interval)
+    private async Task JoinExistingLobbyAsync(string lobbyId)
     {
-        var wait = new WaitForSecondsRealtime(interval);
+        _connectedLobby = await LobbyService.Instance.JoinLobbyByIdAsync(lobbyId);
+        StartLobbyPolling();
+        SetStatus("Match found! Connecting...");
+    }
+
+    private async Task CreateLobbyAsHostAsync()
+    {
+        var allocation = await RelayService.Instance.CreateAllocationAsync(maxPlayers - 1);
+        var joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+
+        var lobbyOptions = new CreateLobbyOptions
+        {
+            IsPrivate = false,
+            Data = new Dictionary<string, DataObject>
+            {
+                {
+                    LobbyDataRoomTypeKey,
+                    new DataObject(
+                        visibility: DataObject.VisibilityOptions.Public,
+                        value: _selectedRoomType,
+                        index: DataObject.IndexOptions.S1)
+                },
+                {
+                    LobbyDataJoinCodeKey,
+                    new DataObject(
+                        visibility: DataObject.VisibilityOptions.Member,
+                        value: joinCode)
+                }
+            }
+        };
+
+        _connectedLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers, lobbyOptions);
+
+        var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+        transport.SetRelayServerData(AllocationUtils.ToRelayServerData(allocation, "dtls"));
+        NetworkManager.Singleton.StartHost();
+
+        StartLobbyHeartbeat();
+        StartLobbyPolling();
+
+        SetStatus("Waiting for another player...");
+    }
+
+    private void StartLobbyPolling()
+    {
+        if (_pollCoroutine != null) StopCoroutine(_pollCoroutine);
+        _pollCoroutine = StartCoroutine(PollLobbyCoroutine());
+    }
+
+    private void StartLobbyHeartbeat()
+    {
+        if (_heartbeatCoroutine != null) StopCoroutine(_heartbeatCoroutine);
+        _heartbeatCoroutine = StartCoroutine(LobbyHeartbeatCoroutine());
+    }
+
+    private IEnumerator PollLobbyCoroutine()
+    {
+        bool clientStarted = false;
+        bool sceneLoaded = false;
+        const float pollInterval = 1.1f;
+
         while (_connectedLobby != null)
         {
-            LobbyService.Instance.SendHeartbeatPingAsync(lobbyId);
-            yield return wait;
+            yield return new WaitForSeconds(pollInterval);
+
+            Task<Lobby> task = null;
+            try
+            {
+                task = LobbyService.Instance.GetLobbyAsync(_connectedLobby.Id);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[LobbyManager] GetLobbyAsync failed (will retry): {e.Message}");
+                continue;
+            }
+
+            while (!task.IsCompleted) yield return null;
+            if (task.IsFaulted)
+            {
+                Debug.LogWarning($"[LobbyManager] GetLobbyAsync faulted: {task.Exception?.Message}");
+                continue;
+            }
+
+            _connectedLobby = task.Result;
+            if (_connectedLobby == null) break;
+
+            bool isHost = _connectedLobby.HostId == AuthenticationService.Instance.PlayerId;
+
+            if (!isHost && !clientStarted)
+            {
+                if (_connectedLobby.Data != null &&
+                    _connectedLobby.Data.TryGetValue(LobbyDataJoinCodeKey, out var joinCodeData) &&
+                    !string.IsNullOrEmpty(joinCodeData.Value))
+                {
+                    yield return StartClientWithJoinCode(joinCodeData.Value);
+                    clientStarted = true;
+                }
+            }
+
+            if (isHost && !sceneLoaded && _connectedLobby.Players.Count >= maxPlayers)
+            {
+                yield return new WaitForSeconds(1.5f);
+                if (NetworkManager.Singleton.IsServer)
+                {
+                    Debug.Log($"[LobbyManager] Lobby full \u2014 loading scene '{_selectedSceneName}' via NGO.");
+                    NetworkManager.Singleton.SceneManager.LoadScene(_selectedSceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
+                    sceneLoaded = true;
+                    yield break;
+                }
+            }
         }
     }
 
-    // ------------------------------------------------------------------
-    // Scene Loading
-    // ------------------------------------------------------------------
-
-    private IEnumerator LoadGameScene(float delay)
+    private IEnumerator StartClientWithJoinCode(string joinCode)
     {
-        SetStatus("Match found! Loading...");
-        yield return new WaitForSeconds(delay);
-        NetworkManager.Singleton.SceneManager.LoadScene(
-            gameSceneName,
-            UnityEngine.SceneManagement.LoadSceneMode.Single);
-    }
-
-    // ------------------------------------------------------------------
-    // Cleanup + Helper
-    // ------------------------------------------------------------------
-
-    private void OnDestroy()
-    {
-        if (NetworkManager.Singleton != null)
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
-
-        if (_connectedLobby == null) return;
+        Task<JoinAllocation> joinTask = null;
         try
         {
-            if (_connectedLobby.HostId == AuthenticationService.Instance.PlayerId)
-                LobbyService.Instance.DeleteLobbyAsync(_connectedLobby.Id);
-            else
-                LobbyService.Instance.RemovePlayerAsync(_connectedLobby.Id, AuthenticationService.Instance.PlayerId);
+            joinTask = RelayService.Instance.JoinAllocationAsync(joinCode);
         }
-        catch (Exception e) { Debug.Log($"[LobbyManager] Cleanup: {e.Message}"); }
+        catch (Exception e)
+        {
+            Debug.LogError($"[LobbyManager] JoinAllocationAsync failed: {e.Message}");
+            yield break;
+        }
+
+        while (!joinTask.IsCompleted) yield return null;
+        if (joinTask.IsFaulted)
+        {
+            Debug.LogError($"[LobbyManager] JoinAllocation faulted: {joinTask.Exception?.Message}");
+            yield break;
+        }
+
+        var joinAllocation = joinTask.Result;
+        var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+        transport.SetRelayServerData(AllocationUtils.ToRelayServerData(joinAllocation, "dtls"));
+        NetworkManager.Singleton.StartClient();
+        Debug.Log("[LobbyManager] StartClient called with Relay join code.");
     }
 
-    private void SetStatus(string message)
+    private IEnumerator LobbyHeartbeatCoroutine()
     {
-        if (statusText != null) statusText.text = message;
-        Debug.Log($"[LobbyManager] {message}");
+        const float heartbeatInterval = 15f;
+        while (_connectedLobby != null)
+        {
+            yield return new WaitForSeconds(heartbeatInterval);
+            if (_connectedLobby == null) break;
+
+            Task task = null;
+            try
+            {
+                task = LobbyService.Instance.SendHeartbeatPingAsync(_connectedLobby.Id);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[LobbyManager] Heartbeat failed: {e.Message}");
+                continue;
+            }
+
+            while (task != null && !task.IsCompleted) yield return null;
+        }
+    }
+
+    private async void OnDestroy()
+    {
+        if (_pollCoroutine != null) StopCoroutine(_pollCoroutine);
+        if (_heartbeatCoroutine != null) StopCoroutine(_heartbeatCoroutine);
+
+        if (_connectedLobby != null && AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+        {
+            try
+            {
+                bool isHost = _connectedLobby.HostId == AuthenticationService.Instance.PlayerId;
+                if (isHost)
+                    await LobbyService.Instance.DeleteLobbyAsync(_connectedLobby.Id);
+                else
+                    await LobbyService.Instance.RemovePlayerAsync(_connectedLobby.Id, AuthenticationService.Instance.PlayerId);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[LobbyManager] OnDestroy lobby cleanup: {e.Message}");
+            }
+        }
+    }
+
+    private void SetStatus(string s)
+    {
+        if (statusText != null) statusText.text = s;
+        Debug.Log($"[LobbyManager] Status: {s}");
     }
 }
