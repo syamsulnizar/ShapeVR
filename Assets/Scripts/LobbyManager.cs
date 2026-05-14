@@ -12,6 +12,7 @@ using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
+using UnityEngine.Events;
 
 #if META_PLATFORM_SDK_DEFINED
 using Meta.XR.MultiplayerBlocks.Shared;
@@ -43,6 +44,8 @@ public class LobbyManager : MonoBehaviour
     public const string RoomTypeVirtualMicOff = "VirtualMicOff";
     public const string RoomTypeVirtualMicOn = "VirtualMicOn";
     public const string RoomTypeVirtualChooseRoom = "VirtualChooseRoom";
+
+    public UnityEvent onMatchFound;
 
     private const string LobbyDataRoomTypeKey = "roomType";
     private const string LobbyDataJoinCodeKey = "joinCode";
@@ -245,11 +248,13 @@ public class LobbyManager : MonoBehaviour
         return response.Results[0].Id;
     }
 
+
     private async Task JoinExistingLobbyAsync(string lobbyId)
     {
         _connectedLobby = await LobbyService.Instance.JoinLobbyByIdAsync(lobbyId);
         StartLobbyPolling();
         SetStatus("Match found! Connecting...");
+        onMatchFound?.Invoke();
     }
 
     private async Task CreateLobbyAsHostAsync()
@@ -410,7 +415,62 @@ public class LobbyManager : MonoBehaviour
         }
     }
 
-    private async void OnDestroy()
+    // ------------------------------------------------------------------
+    // CANCEL MATCHMAKING (wire ke back button OnClick di Inspector)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Batal cari match. Cleanup lobby + shutdown NGO + tampilkan lagi tombol
+    /// room. Aman dipanggil di state apapun.
+    /// Wire ke Back Button OnClick di Inspector.
+    /// </summary>
+    public async void CancelMatchmaking()
+    {
+        Debug.Log("[LobbyManager] CancelMatchmaking called.");
+
+        // 1. Stop polling + heartbeat
+        if (_pollCoroutine != null) { StopCoroutine(_pollCoroutine); _pollCoroutine = null; }
+        if (_heartbeatCoroutine != null) { StopCoroutine(_heartbeatCoroutine); _heartbeatCoroutine = null; }
+
+        // 2. Cleanup lobby (host: delete, client: leave). Fire-and-forget.
+        if (_connectedLobby != null &&
+            AuthenticationService.Instance != null &&
+            AuthenticationService.Instance.IsSignedIn)
+        {
+            try
+            {
+                bool isHost = _connectedLobby.HostId == AuthenticationService.Instance.PlayerId;
+                if (isHost)
+                    await LobbyService.Instance.DeleteLobbyAsync(_connectedLobby.Id);
+                else
+                    await LobbyService.Instance.RemovePlayerAsync(_connectedLobby.Id, AuthenticationService.Instance.PlayerId);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[LobbyManager] Cancel: lobby cleanup error (non-fatal): " + e.Message);
+            }
+        }
+        _connectedLobby = null;
+
+        // 3. Shutdown NGO kalau sudah listening
+        var nm = NetworkManager.Singleton;
+        if (nm != null && (nm.IsListening || nm.IsServer || nm.IsClient))
+        {
+            nm.Shutdown();
+            for (int i = 0; i < 30 && nm.ShutdownInProgress; i++)
+                await System.Threading.Tasks.Task.Yield();
+        }
+
+        // 4. Reset state
+        _pokePressed = false;
+        _selectedRoomType = null;
+        _selectedSceneName = null;
+
+        // 5. Tampilkan lagi pilihan room
+        ShowRoomSelection();
+    }
+
+        private async void OnDestroy()
     {
         if (_pollCoroutine != null) StopCoroutine(_pollCoroutine);
         if (_heartbeatCoroutine != null) StopCoroutine(_heartbeatCoroutine);
@@ -430,6 +490,11 @@ public class LobbyManager : MonoBehaviour
                 Debug.LogWarning($"[LobbyManager] OnDestroy lobby cleanup: {e.Message}");
             }
         }
+    }
+
+    public void ExitGame()
+    {
+        Application.Quit();
     }
 
     private void SetStatus(string s)
