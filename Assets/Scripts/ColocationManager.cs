@@ -31,6 +31,16 @@ public class ColocationManager : NetworkBehaviour
     private System.Guid _groupUuid;
     private System.Guid _anchorUuid;
     private bool _attemptInProgress = false;
+    private Vector3 _anchorLocalOffset;
+    private bool _placedSuccessfully = false;
+
+    [Header("Visual Events (wire MeshRenderer + Collider toggle di Inspector)")]
+    [Tooltip("Dipanggil saat scene start. Wire ke MeshRenderer.enabled=false + Collider.enabled=false untuk semua piece + Board.")]
+    public UnityEngine.Events.UnityEvent onHideVisuals;
+    [Tooltip("Dipanggil setelah host pinch place table. Wire ke MeshRenderer.enabled=true + Collider.enabled=true untuk semua piece + Board.")]
+    public UnityEngine.Events.UnityEvent onShowVisuals;
+
+
 
     public State CurrentState => _state;
     public event Action<Transform> OnAnchorReady;
@@ -38,7 +48,11 @@ public class ColocationManager : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (worldRoot != null) worldRoot.SetActive(false);
+        // PENTING: jangan SetActive(false) WorldRoot! Itu akan trigger
+        // OnDisable di NetworkObject piece -> race condition ISDK component.
+        // Hide MeshRenderer + Collider saja. Semua component (Grabbable,
+        // Rigidbody, NetworkObject) tetap active = lifecycle identik scene lain.
+        HideAllVisuals();
         if (loadingUI != null) loadingUI.ShowValidating();
         StartColocationAttempt();
     }
@@ -67,7 +81,7 @@ public class ColocationManager : NetworkBehaviour
             fwd.Normalize();
             spawnPos = hostHeadTransform.position + fwd * spawnDistanceFromHost;
             spawnPos.y = 0f;
-            spawnRot = Quaternion.LookRotation(-fwd, Vector3.up);
+            spawnRot = Quaternion.identity; // FIX: identity supaya child collider tidak compound-rotate, hindari grab miss;
         }
 
         var anchorGo = new GameObject("HostAnchor");
@@ -212,23 +226,108 @@ public class ColocationManager : NetworkBehaviour
 
     private void ApplyPlacementLocal(Vector3 localPos)
     {
-        Transform anchorTr = IsServer ? _hostAnchor?.transform : _clientAnchor?.transform;
-        if (anchorTr == null || worldRoot == null) return;
+        _anchorLocalOffset = localPos;
+        _placedSuccessfully = true;
 
-        worldRoot.transform.SetParent(anchorTr, worldPositionStays: false);
-        worldRoot.transform.localPosition = localPos;
-        worldRoot.transform.localRotation = Quaternion.identity;
-        worldRoot.SetActive(true);
+        if (worldRoot != null)
+        {
+            worldRoot.transform.SetParent(null, worldPositionStays: true);
+            // JANGAN SetActive(true) — WorldRoot harus selalu active sejak scene start.
+        }
 
         _state = State.Placed;
+        StartCoroutine(InitializeNetworkObjectsCoroutine());
+        Debug.Log("[ColocationManager] Placement done. localOffset=" + localPos);
+    }
+
+    /// <summary>
+    /// Setelah placement, verify semua NetworkObject piece sudah ready & state
+    /// bersih sebelum game playable. Tampilkan loading 'Initializing...'
+    /// sampai semua piece bisa di-grab.
+    /// </summary>
+    private System.Collections.IEnumerator InitializeNetworkObjectsCoroutine()
+    {
+        // 1 frame supaya WorldRoot.position update propagate ke transform anchor
+        yield return null;
+
+        // Reset Rigidbody pose untuk semua piece (safety — align ke transform)
+        if (worldRoot != null)
+        {
+            var rbs = worldRoot.GetComponentsInChildren<Rigidbody>(includeInactive: true);
+            foreach (var rb in rbs)
+            {
+                if (rb == null) continue;
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.position = rb.transform.position;
+                rb.rotation = rb.transform.rotation;
+            }
+            Physics.SyncTransforms();
+        }
+
+        // Hide UI loading
         if (loadingUI != null) loadingUI.Hide();
+
+        // Show visuals via UnityEvent (wire di Inspector)
+        ShowAllVisuals();
+
         OnTablePlaced?.Invoke();
+        Debug.Log("[ColocationManager] Table placed, visuals shown.");
+    }
+
+    /// <summary>
+    /// Hide visual + collider tanpa SetActive(false).
+    /// Semua GameObject di WorldRoot TETAP active sehingga Awake/Start/OnEnable
+    /// di ISDK component (Grabbable, ThrowWhenUnselected, NetworkObject) jalan
+    /// normal seperti scene tanpa colocation.
+    /// </summary>
+    /// <summary>
+    /// Dipanggil saat scene start untuk hide visual + collider piece.
+    /// Wire di Inspector OnHideVisuals UnityEvent ke MeshRenderer.enabled=false
+    /// dan Collider.enabled=false untuk tiap piece + Board.
+    /// </summary>
+    public void HideAllVisuals()
+    {
+        onHideVisuals?.Invoke();
+    }
+
+    /// <summary>
+    /// Re-enable MeshRenderer + Collider. Dipanggil setelah initialization done.
+    /// </summary>
+    /// <summary>
+    /// Dipanggil setelah host pinch place table done. Wire di Inspector
+    /// OnShowVisuals UnityEvent ke MeshRenderer.enabled=true + Collider.enabled=true.
+    /// </summary>
+    public void ShowAllVisuals()
+    {
+        onShowVisuals?.Invoke();
+    }
+
+
+
+    /// <summary>
+    /// Follow anchor: WorldRoot di scene root, tapi position di-update tiap frame
+    /// supaya tracking anchor. Hindari reparent karena bikin NetworkObject piece
+    /// di hierarchy corrupt state.
+    /// </summary>
+    private void LateUpdate()
+    {
+        if (!_placedSuccessfully) return;
+        if (worldRoot == null) return;
+
+        Transform anchorTr = IsServer ? _hostAnchor?.transform : _clientAnchor?.transform;
+        if (anchorTr == null) return;
+
+        // Convert anchor-local offset ke world pose
+        worldRoot.transform.position = anchorTr.TransformPoint(_anchorLocalOffset);
+        worldRoot.transform.rotation = anchorTr.rotation;
     }
 
     public void RetryColocation()
     {
         if (_attemptInProgress) return;
         _state = State.Idle;
+        _placedSuccessfully = false;
         if (_hostAnchor != null) { Destroy(_hostAnchor.gameObject); _hostAnchor = null; }
         if (_clientAnchor != null) { Destroy(_clientAnchor.gameObject); _clientAnchor = null; }
         if (loadingUI != null) loadingUI.ShowValidating();
@@ -248,11 +347,12 @@ public class ColocationManager : NetworkBehaviour
     {
         _state = State.Skipped;
         _attemptInProgress = false;
+        _placedSuccessfully = false;
         if (worldRoot != null)
         {
             worldRoot.transform.SetParent(null);
-            worldRoot.SetActive(true);
         }
+        ShowAllVisuals();
         if (loadingUI != null) loadingUI.Hide();
     }
 }

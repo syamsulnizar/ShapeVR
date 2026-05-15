@@ -163,6 +163,18 @@ public class ShapeObject : NetworkBehaviour
         }
     }
 
+    public void HideObject()
+    {
+        gameObject.GetComponent<MeshRenderer>().enabled = false;
+        gameObject.GetComponent<Collider>().enabled = false;
+    }
+
+    public void ShowObject()
+    {
+        gameObject.GetComponent<MeshRenderer>().enabled = true;
+        gameObject.GetComponent<Collider>().enabled = true;
+    }
+
     [ServerRpc(RequireOwnership = false)]
     private void RequestShapeServerRpc(bool shape, ServerRpcParams rpcParams = default)
     {

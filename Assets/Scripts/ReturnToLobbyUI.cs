@@ -73,4 +73,9 @@ public class ReturnToLobbyUI : MonoBehaviour
         int displayed = Mathf.CeilToInt(Mathf.Max(0f, _remaining));
         countdownText.text = displayed.ToString();
     }
+
+    public void ReturnLobby()
+    {
+        LobbyReturn.Go();
+    }
 }
