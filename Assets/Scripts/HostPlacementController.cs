@@ -163,7 +163,7 @@ public class HostPlacementController : MonoBehaviour
             Debug.Log("[HostPlacementController] Pinch! Place at " + _currentHitPoint);
             if (colocationManager != null)
             {
-                colocationManager.ConfirmTablePlacement(_currentHitPoint);
+                //colocationManager.ConfirmTablePlacement(_currentHitPoint);
             }
         }
     }

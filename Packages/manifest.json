@@ -6,6 +6,7 @@
     "com.meta.xr.sdk.avatars.sample.assets": "40.0.1",
     "com.meta.xr.sdk.core": "77.0.0",
     "com.meta.xr.sdk.movement": "https://github.com/oculus-samples/Unity-Movement.git",
+    "com.unity.ai.assistant": "2.8.0-pre.1",
     "com.unity.ai.navigation": "2.0.12",
     "com.unity.collab-proxy": "2.12.4",
     "com.unity.ide.rider": "3.0.39",
