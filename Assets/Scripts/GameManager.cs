@@ -4,16 +4,16 @@ using UnityEngine.Events;
 using Unity.Netcode;
 
 /// <summary>
-/// Manager game puzzle. Server-authoritative. Handle:
-///   1. Win check (semua piece IsShaped == true).
-///   2. Auto-return-to-lobby setelah menang (countdown 5 detik default).
+/// Puzzle game manager. Server-authoritative. Handles:
+///   1. Win check (all pieces have IsShaped == true).
+///   2. Auto-return to lobby after winning (5-second countdown by default).
 ///   3. Disconnect handling:
-///       - Server detect client disconnect mid-game → broadcast countdown ke
-///         remaining client.
-///       - Client detect dia ter-disconnect (kemungkinan host putus) → tampilkan
-///         countdown lokal.
-///   4. Kalau game sudah won, disconnect TIDAK trigger UI ulang (countdown win
-///      sudah jalan).
+///       - Server detects a client disconnecting mid-game -> broadcasts a countdown
+///         to the remaining client.
+///       - Client detects that it has been disconnected (likely because the host
+///         disconnected) -> shows a local countdown.
+///   4. If the game has already been won, disconnects do NOT trigger the UI again
+///      (the win countdown is already running).
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class GameManager : NetworkBehaviour
@@ -55,14 +55,13 @@ public class GameManager : NetworkBehaviour
         var nm = NetworkManager.Singleton;
         if (nm == null) return;
 
-        // SERVER: subscribe disconnect agar tahu kalau client putus mid-game.
+        // SERVER: subscribe disconnect so we know if client disconnect in the middle of game
         if (IsServer)
         {
             nm.OnClientDisconnectCallback += HandleServerSideClientDisconnected;
         }
 
-        // CLIENT (non-host): subscribe disconnect agar tahu kalau diri sendiri putus
-        // (host kemungkinan disconnect / shutdown).
+        // CLIENT (non-host): subscribe disconnect so we know if we disconnected
         if (IsClient && !IsServer)
         {
             nm.OnClientDisconnectCallback += HandleLocalClientDisconnected;
@@ -86,7 +85,7 @@ public class GameManager : NetworkBehaviour
     // ============================================================
 
     /// <summary>
-    /// Hanya server. Dipanggil oleh ShapeObject saat IsShaped berubah jadi true.
+    /// Server only
     /// </summary>
     public void CheckCondition()
     {
@@ -123,13 +122,10 @@ public class GameManager : NetworkBehaviour
 
     private void HandleServerSideClientDisconnected(ulong clientId)
     {
-        // Abaikan kalau yang putus adalah server sendiri (clientId == ServerClientId)
         if (clientId == NetworkManager.ServerClientId) return;
 
-        // Kalau game sudah won (atau sudah dalam proses pulang), tidak perlu UI ulang.
         if (_returningToLobby) return;
 
-        // Trigger countdown ke client tersisa.
         _returningToLobby = true;
         StartCountdownClientRpc(disconnectCountdownSeconds, ReturnReason.PlayerDisconnected);
         Invoke(nameof(ServerLoadLobby), disconnectCountdownSeconds);
@@ -147,15 +143,12 @@ public class GameManager : NetworkBehaviour
 
     private void HandleLocalClientDisconnected(ulong clientId)
     {
-        // Hanya peduli kalau yang disconnect = diri sendiri (ter-kick karena host putus).
         var nm = NetworkManager.Singleton;
         if (nm == null) return;
         if (clientId != nm.LocalClientId) return;
 
-        // Kalau game sudah won / sudah ada countdown jalan, biarkan saja (no extra UI).
         if (_returningToLobby || (returnToLobbyUI != null && returnToLobbyUI.IsShowing)) return;
 
-        // Tampilkan UI host-left + countdown lokal (NGO sudah down, tidak ada server).
         _returningToLobby = true;
         if (returnToLobbyUI != null)
         {
@@ -163,7 +156,6 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            // Fallback: kalau tidak ada UI, tunggu sebentar lalu pulang.
             Invoke(nameof(LocalLoadLobby), disconnectCountdownSeconds);
         }
     }
@@ -174,7 +166,7 @@ public class GameManager : NetworkBehaviour
     }
 
     // ============================================================
-    // SHARED: trigger UI countdown di semua client
+    // SHARED: trigger UI countdown on every client
     // ============================================================
 
     [ClientRpc]
@@ -182,9 +174,6 @@ public class GameManager : NetworkBehaviour
     {
         if (returnToLobbyUI == null) return;
 
-        // Kalau win-countdown sudah jalan dan ini disconnect-event, abaikan
-        // (Win sudah ambil precedence). Server-side guard sebenarnya sudah
-        // mencegah ini, tapi double-check di client juga aman.
         if (returnToLobbyUI.IsShowing && reason != ReturnReason.Win) return;
 
         string txt = reason switch
@@ -199,10 +188,9 @@ public class GameManager : NetworkBehaviour
     }
 
     // ============================================================
-    // PUBLIC API: panggil ini dari Button untuk pulang manual
+    // PUBLIC API
     // ============================================================
 
-    /// <summary>Wire ke Button.OnClick — siapa pun bisa panggil, host atau client.</summary>
     public void ReturnToLobbyManual()
     {
         LobbyReturn.Go();

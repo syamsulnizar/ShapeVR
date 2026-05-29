@@ -2,14 +2,14 @@ using UnityEngine;
 using TMPro;
 
 /// <summary>
-/// UI panel yang menampilkan countdown kembali ke lobby.
+/// UI panel show countdown to lobby
 ///
 /// Lifecycle (PUBLIC API):
-///   - Show(seconds, reason)  : tampilkan panel + mulai countdown.
-///   - Hide()                 : sembunyikan paksa (jarang dipakai).
-///   - IsShowing              : true kalau sedang countdown.
+///   - Show(seconds, reason)  
+///   - Hide()                
+///   - IsShowing             
 ///
-/// Saat countdown habis, otomatis call LobbyReturn.Go().
+/// When countdown 0, call LobbyReturn.Go().
 /// </summary>
 public class ReturnToLobbyUI : MonoBehaviour
 {
@@ -32,7 +32,7 @@ public class ReturnToLobbyUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Tampilkan panel + mulai countdown lokal.
+    /// Show panel + start countdown
     /// </summary>
     public void Show(float seconds, string reason)
     {

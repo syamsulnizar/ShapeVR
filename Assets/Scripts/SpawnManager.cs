@@ -3,18 +3,18 @@ using UnityEngine;
 using Unity.Netcode;
 
 /// <summary>
-/// Mengatur spawn point untuk setiap player berdasarkan urutan join.
+/// Manages spawn points for each player based on join order.
 ///
-/// SETUP DI GAMESCENE:
-///   1. Buat empty GameObject bernama "SpawnManager" di root hierarchy.
-///   2. Attach script ini. JANGAN tambahkan NetworkObject — ini MonoBehaviour biasa.
-///   3. Buat dua child empty: "SpawnPointA" dan "SpawnPointB", posisikan sesuai kebutuhan.
-///   4. Assign keduanya di Inspector.
+/// SETUP IN GAMESCENE:
+///   1. Create an empty GameObject named "SpawnManager" in the root hierarchy.
+///   2. Attach this script. DO NOT add a NetworkObject — this is a regular MonoBehaviour.
+///   3. Create two empty children: "SpawnPointA" and "SpawnPointB", and position them as needed.
+///   4. Assign both of them in the Inspector.
 ///
-/// CARA KERJA:
-///   - Host (clientId 0) selalu ke SpawnPointA.
-///   - Client pertama yang join (clientId 1) ke SpawnPointB.
-///   - Dipanggil oleh NetworkedPlayerSpawner saat player prefab spawn.
+/// HOW IT WORKS:
+///   - Host (clientId 0) always goes to SpawnPointA.
+///   - The first client to join (clientId 1) goes to SpawnPointB.
+///   - Called by NetworkedPlayerSpawner when the player prefab spawns.
 /// </summary>
 public class SpawnManager : MonoBehaviour
 {
@@ -31,8 +31,7 @@ public class SpawnManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Kembalikan spawn Transform berdasarkan clientId.
-    /// clientId 0 (host) → A, sisanya → B.
+    /// spawn transform based on clientId.
     /// </summary>
     public Transform GetSpawnPoint(ulong clientId)
     {

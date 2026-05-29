@@ -19,9 +19,9 @@ using Meta.XR.MultiplayerBlocks.Shared;
 #endif
 
 /// <summary>
-/// Lobby manager dengan matchmaking by room-type. Player tekan salah satu dari
-/// 4 tombol (Passthrough, Virtual Mic Off, Virtual Mic On, Virtual Choose Room).
-/// Player hanya match dengan yang memilih tombol SAMA. Max 2 per room.
+/// Lobby manager with matchmaking by room type. The player presses one of
+/// 4 buttons (Passthrough, Virtual Mic Off, Virtual Mic On, Virtual Choose Room).
+/// Players only match with others who chose the SAME button. Max 2 players per room.
 /// </summary>
 public class LobbyManager : MonoBehaviour
 {
@@ -416,13 +416,13 @@ public class LobbyManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
-    // CANCEL MATCHMAKING (wire ke back button OnClick di Inspector)
+    // CANCEL MATCHMAKING
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Batal cari match. Cleanup lobby + shutdown NGO + tampilkan lagi tombol
-    /// room. Aman dipanggil di state apapun.
-    /// Wire ke Back Button OnClick di Inspector.
+    /// Cancels match searching. Cleans up the lobby, shuts down NGO, and shows the
+    /// room buttons again. Safe to call in any state.
+    /// Wire this to the Back Button OnClick in the Inspector.
     /// </summary>
     public async void CancelMatchmaking()
     {
@@ -452,7 +452,7 @@ public class LobbyManager : MonoBehaviour
         }
         _connectedLobby = null;
 
-        // 3. Shutdown NGO kalau sudah listening
+        // 3. Shutdown NGO
         var nm = NetworkManager.Singleton;
         if (nm != null && (nm.IsListening || nm.IsServer || nm.IsClient))
         {
@@ -466,7 +466,7 @@ public class LobbyManager : MonoBehaviour
         _selectedRoomType = null;
         _selectedSceneName = null;
 
-        // 5. Tampilkan lagi pilihan room
+        // 5. Show room selection again
         ShowRoomSelection();
     }
 

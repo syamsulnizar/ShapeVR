@@ -1,28 +1,29 @@
 using UnityEngine;
 using Unity.Netcode;
+using Oculus.Interaction;
 
 /// <summary>
-/// Piece bentuk solid (Circle, Cube, Donut, Diamond, dll) yang dipegang pemain
-/// dan dimasukkan ke ghost lubang siluet di Board.
+/// A solid-shaped piece (Circle, Cube, Donut, Diamond, etc.) held by the player
+/// and inserted into the silhouette-hole ghost on the Board.
 ///
-/// State `IsShaped` di-replicate via NetworkVariable, jadi semua client melihat
-/// progress yang sama.
+/// The `IsShaped` state is replicated via NetworkVariable, so all clients see
+/// the same progress.
 ///
 /// VISUAL GHOST LIFECYCLE:
-///   - Default: ghost invisible (MeshRenderer disabled).
-///   - Saat piece di-hover oleh tangan/snap zone: ghost ON kalau belum shaped
-///     (preview "kamu bisa snap di sini").
-///   - Saat piece di-unhover: ghost OFF lagi.
-///   - Saat snapped (IsShaped = true): ghost OFF (sudah ke-isi).
-///   - Saat unsnap (IsShaped = false): ghost kembali OFF (default).
-///   - Hover state hanya replicate saat belum shaped, untuk menghindari ghost
-///     "berkedip" saat hover di piece yang sudah shaped.
+///   - Default: ghost is invisible (MeshRenderer disabled).
+///   - When the piece is hovered by a hand/snap zone: ghost turns ON if it has not
+///     been shaped yet (preview: "you can snap here").
+///   - When the piece is unhovered: ghost turns OFF again.
+///   - When snapped (IsShaped = true): ghost turns OFF (already filled).
+///   - When unsnapped (IsShaped = false): ghost returns to OFF (default).
+///   - Hover state is only replicated while not shaped, to prevent the ghost from
+///     "flickering" when hovering over a piece that has already been shaped.
 ///
 /// SETUP:
-///   - GameObject ini WAJIB punya NetworkObject component.
-///   - Karena scene-placed, NetworkObject akan auto-spawn saat NGO load scene
-///     (host wajib pakai NetworkSceneManager.LoadScene).
-///   - Hubungkan UnityEvent SnapInteractor:
+///   - This GameObject MUST have a NetworkObject component.
+///   - Because it is scene-placed, the NetworkObject will auto-spawn when NGO loads
+///     the scene (the host must use NetworkSceneManager.LoadScene).
+///   - Connect the SnapInteractor UnityEvent:
 ///       When Hover()    -> ShapeObject.OnHover()
 ///       When Unhover()  -> ShapeObject.OnUnhover()
 ///       When Select()   -> ShapeObject.Shape(true)   [kept]
@@ -38,16 +39,14 @@ public class ShapeObject : NetworkBehaviour
         writePerm: NetworkVariableWritePermission.Server);
 
     /// <summary>
-    /// Hover state per piece. Direplicate supaya semua pemain lihat ghost
-    /// muncul ketika player A hover, bukan hanya di sisi A.
-    /// Server-authoritative (client request via ServerRpc).
+    /// Hover state per piece
+    /// Server-authoritative 
     /// </summary>
     public NetworkVariable<bool> IsHovered = new NetworkVariable<bool>(
         false,
         readPerm: NetworkVariableReadPermission.Everyone,
         writePerm: NetworkVariableWritePermission.Server);
 
-    /// <summary>Backwards-compat: kode lama yang baca `isShaped` tetap jalan.</summary>
     public bool isShaped => IsShaped.Value;
 
     [Header("Visual / SFX")]
@@ -55,8 +54,15 @@ public class ShapeObject : NetworkBehaviour
     [SerializeField] private MeshRenderer silhouetteRenderer;
     [Tooltip("AudioSource untuk SFX snap. Kosongkan jika tidak perlu.")]
     [SerializeField] private AudioSource snapSfx;
+    [Tooltip("Delay pendek agar SnapInteractor sempat mengubah state setelah shape dilepas.")]
+    [SerializeField] private float wrongReleaseCheckDelay = 0.2f;
+    [Tooltip("Tambahan area cek overlap dengan snap board saat shape dilepas.")]
+    [SerializeField] private float wrongSnapOverlapPadding = 0.03f;
 
     private GameManager _gameManager;
+    private Grabbable _grabbable;
+    private Collider _shapeCollider;
+    private Coroutine _wrongReleaseRoutine;
 
     public override void OnNetworkSpawn()
     {
@@ -70,25 +76,36 @@ public class ShapeObject : NetworkBehaviour
         {
             _gameManager = FindFirstObjectByType<GameManager>();
         }
+
+        SubscribeGrabRelease();
     }
 
     public override void OnNetworkDespawn()
     {
         IsShaped.OnValueChanged -= HandleShapedChanged;
         IsHovered.OnValueChanged -= HandleHoverChanged;
+        UnsubscribeGrabRelease();
+    }
+
+    private void OnDisable()
+    {
+        UnsubscribeGrabRelease();
+    }
+
+    private void OnEnable()
+    {
+        SubscribeGrabRelease();
     }
 
     private void HandleShapedChanged(bool previous, bool current)
     {
         ApplyVisual();
 
-        // SFX hanya saat transisi ke shaped (avoid play saat sinkron awal client baru join).
         if (current && !previous && snapSfx != null && _hasStarted)
         {
             snapSfx.Play();
         }
 
-        // Cek kemenangan hanya di server, hanya saat berubah jadi shaped.
         if (IsServer && current && _gameManager != null)
         {
             _gameManager.CheckCondition();
@@ -104,7 +121,6 @@ public class ShapeObject : NetworkBehaviour
     {
         if (silhouetteRenderer == null) return;
 
-        // Logic: ghost VISIBLE hanya saat hovered DAN belum shaped.
         bool shouldShow = IsHovered.Value && !IsShaped.Value;
         silhouetteRenderer.enabled = shouldShow;
     }
@@ -113,13 +129,15 @@ public class ShapeObject : NetworkBehaviour
     private void Start()
     {
         _hasStarted = true;
-        // Pastikan default ghost invisible saat scene start (sebelum spawn pun).
         if (silhouetteRenderer != null)
             silhouetteRenderer.enabled = false;
+
+        _shapeCollider = GetComponent<Collider>();
+        SubscribeGrabRelease();
     }
 
     // ============================================================
-    // PUBLIC API — dipanggil dari UnityEvent SnapInteractor
+    // PUBLIC API
     // ============================================================
 
     /// <summary>UnityEvent: When Select() / When Unselect()</summary>
@@ -173,6 +191,94 @@ public class ShapeObject : NetworkBehaviour
     {
         gameObject.GetComponent<MeshRenderer>().enabled = true;
         gameObject.GetComponent<Collider>().enabled = true;
+    }
+
+    private void SubscribeGrabRelease()
+    {
+        if (_grabbable != null) return;
+
+        _grabbable = GetComponent<Grabbable>();
+        if (_grabbable != null)
+            _grabbable.WhenPointerEventRaised += HandleGrabPointerEvent;
+    }
+
+    private void UnsubscribeGrabRelease()
+    {
+        if (_grabbable == null) return;
+
+        _grabbable.WhenPointerEventRaised -= HandleGrabPointerEvent;
+        _grabbable = null;
+    }
+
+    private void HandleGrabPointerEvent(PointerEvent evt)
+    {
+        if (evt.Type != PointerEventType.Unselect) return;
+
+        // Error count is local-only. In network play, only the current owner should count it.
+        if (IsSpawned && !IsOwner) return;
+
+        if (_wrongReleaseRoutine != null)
+            StopCoroutine(_wrongReleaseRoutine);
+
+        _wrongReleaseRoutine = StartCoroutine(CheckWrongReleaseAfterDelay());
+    }
+
+    private System.Collections.IEnumerator CheckWrongReleaseAfterDelay()
+    {
+        yield return new WaitForSeconds(wrongReleaseCheckDelay);
+
+        _wrongReleaseRoutine = null;
+
+        if (IsShaped.Value) yield break;
+        if (!IsReleasedOnWrongBoardSnap()) yield break;
+
+        ShapeErrorLogger logger = ShapeErrorLogger.Instance;
+        if (logger == null)
+            logger = FindFirstObjectByType<ShapeErrorLogger>();
+
+        if (logger != null)
+            logger.ReportWrongRelease(gameObject.name);
+    }
+
+    private bool IsReleasedOnWrongBoardSnap()
+    {
+        if (_shapeCollider == null)
+            _shapeCollider = GetComponent<Collider>();
+
+        if (_shapeCollider == null)
+            return false;
+
+        Bounds bounds = _shapeCollider.bounds;
+        Vector3 halfExtents = bounds.extents + Vector3.one * wrongSnapOverlapPadding;
+        Collider[] hits = Physics.OverlapBox(bounds.center, halfExtents, Quaternion.identity, ~0, QueryTriggerInteraction.Collide);
+
+        foreach (Collider hit in hits)
+        {
+            if (hit == null || hit == _shapeCollider) continue;
+            if (hit.transform == transform || hit.transform.IsChildOf(transform)) continue;
+            if (!IsBoardSnapCollider(hit)) continue;
+            if (IsCorrectSnapCollider(hit)) continue;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsBoardSnapCollider(Collider hit)
+    {
+        string objectName = hit.gameObject.name;
+        if (!objectName.EndsWith(" Snap", System.StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        Transform parent = hit.transform.parent;
+        return parent != null && parent.name == "Board";
+    }
+
+    private bool IsCorrectSnapCollider(Collider hit)
+    {
+        string expectedSnapName = $"{gameObject.name} Snap";
+        return string.Equals(hit.gameObject.name, expectedSnapName, System.StringComparison.OrdinalIgnoreCase);
     }
 
     [ServerRpc(RequireOwnership = false)]

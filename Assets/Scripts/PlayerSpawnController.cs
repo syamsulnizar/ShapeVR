@@ -3,29 +3,29 @@ using UnityEngine;
 using Unity.Netcode;
 
 /// <summary>
-/// Attach script ini ke OVRCameraRig di GameScene.
+/// Attach this script to the OVRCameraRig in the GameScene.
 ///
-/// Cara kerja:
-///   - Saat GameScene load, script ini menunggu NGO ready
-///   - Lalu menggeser OVRCameraRig ke SpawnPoint yang benar
-///   - Host (clientId 0) → SpawnPointA
-///   - Client (clientId 1) → SpawnPointB
+/// How it works:
+///   - When the GameScene loads, this script waits until NGO is ready.
+///   - Then it moves the OVRCameraRig to the correct SpawnPoint.
+///   - Host (clientId 0) -> SpawnPointA
+///   - Client (clientId 1) -> SpawnPointB
 ///
 /// SETUP:
-///   1. Attach script ini ke OVRCameraRig di GameScene.
-///   2. Tidak perlu assign apapun di Inspector — SpawnManager.Instance dipakai otomatis.
+///   1. Attach this script to the OVRCameraRig in the GameScene.
+///   2. No Inspector assignment is needed — SpawnManager.Instance is used automatically.
 /// </summary>
 public class PlayerSpawnController : MonoBehaviour
 {
     private IEnumerator Start()
     {
-        // Tunggu NetworkManager ready
+        // Wait NetworkManager ready
         yield return new WaitUntil(() =>
             NetworkManager.Singleton != null &&
             (NetworkManager.Singleton.IsHost || NetworkManager.Singleton.IsClient)
         );
 
-        // Tunggu 1 frame lagi agar SpawnManager.Instance sudah terinisialisasi
+        // Wait 1 frame so instance initialized
         yield return null;
 
         if (SpawnManager.Instance == null)
