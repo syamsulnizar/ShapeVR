@@ -145,6 +145,21 @@ public class ShapeObject : NetworkBehaviour
     {
         if (!IsSpawned) return;
 
+        if (shape)
+        {
+            if (!IsShaped.Value && PlayerDataSaver.Instance != null)
+            {
+                PlayerDataSaver.Instance.IncrementCorrectAnswers();
+            }
+        }
+        else
+        {
+            if (IsShaped.Value && PlayerDataSaver.Instance != null)
+            {
+                PlayerDataSaver.Instance.DecrementCorrectAnswers();
+            }
+        }
+
         if (IsServer)
         {
             IsShaped.Value = shape;

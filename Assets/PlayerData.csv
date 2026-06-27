@@ -1,0 +1,10 @@
+PlayerID,PlayerRole,PlayTimeGMT,Location,CompletionTime,CorrectAnswers,IncorrectAnswers
+0001,Player 1,2026-06-27 16:18:52 GMT,Virtual Mic On,329.86,0,0
+0002,Player 2,2026-06-27 16:18:52 GMT,Virtual Mic On,328.93,9,1
+0001,Player 1,2026-06-27 16:44:40 GMT,Virtual Mic On,86.82,0,0
+0002,Player 2,2026-06-27 16:44:40 GMT,Virtual Mic On,83.77,9,6
+0001,Player 1,2026-06-27 16:46:12 GMT,Virtual Mic On,44.76,9,0
+0002,Player 2,2026-06-27 16:46:12 GMT,Virtual Mic On,41.63,0,0
+1,Player 1,2026-06-27 17:01:12 GMT,Virtual Mic On,99.52,0,0
+2,Player 2,2026-06-27 17:03:02 GMT,Virtual Mic On,53.32,0,0
+2,Player 1,2026-06-27 17:03:02 GMT,Virtual Mic On,59.29,9,0

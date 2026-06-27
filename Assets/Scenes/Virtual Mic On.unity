@@ -16596,6 +16596,7 @@ GameObject:
   - component: {fileID: 1504148188}
   - component: {fileID: 1504148189}
   - component: {fileID: 1504148187}
+  - component: {fileID: 1504148190}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -16711,6 +16712,20 @@ MonoBehaviour:
   AutoObjectParentSync: 1
   SyncOwnerTransformWhenParented: 1
   AllowOwnerToParent: 0
+--- !u!114 &1504148190
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1504148186}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6263c0ca36d7e0541a725073216d7620, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerDataSaver
+  googleSheetsUrl: https://script.google.com/macros/s/AKfycby4Knc4pX_8Cy-we0xpP9P7gUBGOvDQ1ULVDT30PpaXXfKWRCHCeJKc5x17fcLCntfrCg/exec
+  correctAnswers: 0
 --- !u!1001 &1525532035
 PrefabInstance:
   m_ObjectHideFlags: 0
