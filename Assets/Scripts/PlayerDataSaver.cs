@@ -1,12 +1,14 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
 using Unity.Netcode;
+using Unity.Collections;
 
-public class PlayerDataSaver : MonoBehaviour
+public class PlayerDataSaver : NetworkBehaviour
 {
     public static PlayerDataSaver Instance { get; private set; }
 
@@ -17,8 +19,14 @@ public class PlayerDataSaver : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private int correctAnswers = 0;
 
+    // NetworkVariable untuk sinkronisasi Session ID yang sama antar kedua player
+    private readonly NetworkVariable<FixedString64Bytes> sessionId = new NetworkVariable<FixedString64Bytes>(
+        writePerm: NetworkVariableWritePermission.Server
+    );
+
     private float startTime;
     private bool dataSaved = false;
+    private readonly List<string> mistakeLogs = new List<string>();
 
     private void Awake()
     {
@@ -31,10 +39,20 @@ public class PlayerDataSaver : MonoBehaviour
         Instance = this;
     }
 
+    public override void OnNetworkSpawn()
+    {
+        // Hanya Server/Host yang generate Session ID unik di awal permainan
+        if (IsServer)
+        {
+            sessionId.Value = Guid.NewGuid().ToString();
+        }
+    }
+
     private void Start()
     {
         startTime = Time.time;
         dataSaved = false;
+        mistakeLogs.Clear();
 
         // Cari GameManager dan daftarkan ke event Won
         GameManager gameManager = FindFirstObjectByType<GameManager>();
@@ -61,6 +79,38 @@ public class PlayerDataSaver : MonoBehaviour
         Debug.Log($"[PlayerDataSaver] Correct placements decremented: {correctAnswers}");
     }
 
+    public void RecordMistake(string shapeName)
+    {
+        float elapsed = Time.time - startTime;
+        int minutes = Mathf.FloorToInt(elapsed / 60f);
+        int seconds = Mathf.FloorToInt(elapsed % 60f);
+        string timeStr = minutes > 0 ? $"{minutes}m {seconds}s" : $"{seconds}s";
+
+        string cleanName = string.IsNullOrWhiteSpace(shapeName) ? "Shape" : shapeName;
+        string logMessage = $"At {timeStr} ({cleanName})";
+        mistakeLogs.Add(logMessage);
+        
+        Debug.Log($"[PlayerDataSaver] Mistake logged: {logMessage}");
+    }
+
+    private string GetMistakeLogsString()
+    {
+        if (mistakeLogs.Count == 0)
+        {
+            return "No mistakes";
+        }
+        return string.Join(", ", mistakeLogs);
+    }
+
+    private string GetSessionId()
+    {
+        if (NetworkManager.Singleton != null && IsSpawned)
+        {
+            return sessionId.Value.ToString();
+        }
+        return "offline_" + DateTime.UtcNow.Ticks;
+    }
+
     private void OnGameWon()
     {
         if (dataSaved) return;
@@ -71,13 +121,15 @@ public class PlayerDataSaver : MonoBehaviour
 
     private void SavePlayerData()
     {
-        // 1. Player Role & Temp ID
+        // 1. Tentukan Player Role (Player 1 atau Player 2)
         string playerRole = "Player 1";
+        bool isPlayer1 = true;
         var nm = NetworkManager.Singleton;
         if (nm != null && (nm.IsHost || nm.IsClient))
         {
             ulong clientId = nm.LocalClientId;
-            playerRole = clientId == 0 ? "Player 1" : $"Player {clientId + 1}";
+            isPlayer1 = clientId == 0;
+            playerRole = isPlayer1 ? "Player 1" : $"Player {clientId + 1}";
         }
 
         // 2. Play Time (GMT)
@@ -99,10 +151,13 @@ public class PlayerDataSaver : MonoBehaviour
             incorrect = ShapeErrorLogger.Instance.WrongReleaseCount;
         }
 
-        Debug.Log($"[PlayerDataSaver] Session Completed: Role={playerRole}, PlayTime={playTime}, Location={location}, Duration={completionTime:0.00}s, Correct={correct}, Incorrect={incorrect}");
+        string sessionGuid = GetSessionId();
+        string mistakeLogsStr = GetMistakeLogsString();
 
-        // Kirim ke Google Sheets (ini akan menyimpan ke local CSV setelah selesai/gagal)
-        SendToGoogleSheets(playerRole, playTime, location, completionTime, correct, incorrect);
+        Debug.Log($"[PlayerDataSaver] Session Completed: Role={playerRole}, PlayTime={playTime}, Location={location}, Duration={completionTime:0.00}s, Correct={correct}, Incorrect={incorrect}, Mistakes={mistakeLogsStr}, SessionID={sessionGuid}");
+
+        // Kirim data ke Google Sheets (dan local CSV setelah selesai/gagal)
+        SendToGoogleSheets(playerRole, playTime, location, completionTime, correct, incorrect, sessionGuid, mistakeLogsStr, isPlayer1);
     }
 
     private string GetCurrentLocation()
@@ -143,52 +198,118 @@ public class PlayerDataSaver : MonoBehaviour
         return sceneName;
     }
 
-    private void SaveLocalCSV(string playerId, string playerRole, string playTime, string location, float completionTime, int correct, int incorrect)
+    private void SaveLocalCSV(string playerId, string pairId, string playerRole, string playTime, string location, float completionTime, int correct, int incorrect, string mistakeLogsStr, string sessionGuid, bool isPlayer1)
     {
-        string header = "PlayerID,PlayerRole,PlayTimeGMT,Location,CompletionTime,CorrectAnswers,IncorrectAnswers";
+        string header = "PlayerID,PairID,PlayerRole,PlayTimeGMT,Location,CompletionTime,CorrectAnswers,IncorrectAnswers,MistakeLogs,SessionID";
         string persistentPath = Path.Combine(Application.persistentDataPath, "PlayerData.csv");
 
         string finalPlayerId = playerId;
-        if (string.IsNullOrEmpty(finalPlayerId))
+        string finalPairId = pairId;
+
+        // Fallback jika tidak terkoneksi internet / Google Sheets gagal merespon
+        if (string.IsNullOrEmpty(finalPlayerId) || string.IsNullOrEmpty(finalPairId))
         {
-            finalPlayerId = GetNextLocalPlayerIdFromFile(persistentPath).ToString();
+            GetLocalFallbackIds(persistentPath, isPlayer1, sessionGuid, out string fallbackPlayerId, out string fallbackPairId);
+            finalPlayerId = fallbackPlayerId;
+            finalPairId = fallbackPairId;
         }
 
-        string csvLine = $"{finalPlayerId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect}";
+        // Mistake logs dibungkus tanda kutip ganda ("...") agar koma di dalamnya tidak memecah kolom CSV
+        string csvLine = $"{finalPlayerId},{finalPairId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect},\"{mistakeLogsStr}\",{sessionGuid}";
         WriteRowToFile(persistentPath, header, csvLine);
 
 #if UNITY_EDITOR
         string projectPath = Path.Combine(Application.dataPath, "PlayerData.csv");
-        if (string.IsNullOrEmpty(playerId))
+        if (string.IsNullOrEmpty(playerId) || string.IsNullOrEmpty(pairId))
         {
-            finalPlayerId = GetNextLocalPlayerIdFromFile(projectPath).ToString();
-            csvLine = $"{finalPlayerId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect}";
+            GetLocalFallbackIds(projectPath, isPlayer1, sessionGuid, out string fallbackPlayerId, out string fallbackPairId);
+            finalPlayerId = fallbackPlayerId;
+            finalPairId = fallbackPairId;
         }
+        csvLine = $"{finalPlayerId},{finalPairId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect},\"{mistakeLogsStr}\",{sessionGuid}";
         WriteRowToFile(projectPath, header, csvLine);
 #endif
     }
 
-    private int GetNextLocalPlayerIdFromFile(string filePath)
+    private void GetLocalFallbackIds(string filePath, bool isPlayer1, string sessionGuid, out string fallbackPlayerId, out string fallbackPairId)
     {
-        if (!File.Exists(filePath)) return 1;
+        if (!File.Exists(filePath))
+        {
+            fallbackPlayerId = isPlayer1 ? "1" : "2";
+            fallbackPairId = "1";
+            return;
+        }
+
         try
         {
             string[] lines = File.ReadAllLines(filePath);
-            if (lines.Length > 1)
+            if (lines.Length <= 1) // Hanya header
             {
-                string lastLine = lines[lines.Length - 1];
-                string[] parts = lastLine.Split(',');
-                if (parts.Length > 0 && int.TryParse(parts[0], out int lastId))
+                fallbackPlayerId = isPlayer1 ? "1" : "2";
+                fallbackPairId = "1";
+                return;
+            }
+
+            int maxOdd = 0;
+            int maxEven = 0;
+            int maxPair = 0;
+            string existingPairId = null;
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                string[] parts = lines[i].Split(',');
+                if (parts.Length > 9) // Setidaknya ada 10 kolom (index 0 sampai 9)
                 {
-                    return lastId + 1;
+                    string idStr = parts[0];
+                    string pairStr = parts[1];
+                    string sessId = parts[9];
+
+                    // Hapus tanda kutip ganda jika ada pada session ID
+                    sessId = sessId.Replace("\"", "").Trim();
+
+                    if (int.TryParse(idStr, out int idVal))
+                    {
+                        if (idVal % 2 != 0)
+                        {
+                            if (idVal > maxOdd) maxOdd = idVal;
+                        }
+                        else
+                        {
+                            if (idVal > maxEven) maxEven = idVal;
+                        }
+                    }
+
+                    if (int.TryParse(pairStr, out int pairVal))
+                    {
+                        if (pairVal > maxPair) maxPair = pairVal;
+                    }
+
+                    if (sessId == sessionGuid.Trim())
+                    {
+                        existingPairId = pairStr;
+                    }
                 }
+            }
+
+            fallbackPlayerId = isPlayer1 
+                ? (maxOdd == 0 ? 1 : maxOdd + 2).ToString() 
+                : (maxEven == 0 ? 2 : maxEven + 2).ToString();
+
+            if (!string.IsNullOrEmpty(existingPairId))
+            {
+                fallbackPairId = existingPairId;
+            }
+            else
+            {
+                fallbackPairId = (maxPair + 1).ToString();
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[PlayerDataSaver] Error reading last ID from {filePath}: {ex.Message}");
+            Debug.LogError($"[PlayerDataSaver] Error calculating fallback IDs: {ex.Message}");
+            fallbackPlayerId = isPlayer1 ? "1" : "2";
+            fallbackPairId = "1";
         }
-        return 1;
     }
 
     private void WriteRowToFile(string filePath, string header, string csvLine)
@@ -212,29 +333,31 @@ public class PlayerDataSaver : MonoBehaviour
         }
     }
 
-    private void SendToGoogleSheets(string playerRole, string playTime, string location, float completionTime, int correct, int incorrect)
+    private void SendToGoogleSheets(string playerRole, string playTime, string location, float completionTime, int correct, int incorrect, string sessionGuid, string mistakeLogsStr, bool isPlayer1)
     {
         PlayerDataPayload payload = new PlayerDataPayload
         {
-            playerId = "", // Biarkan kosong, Apps Script yang akan mengisi
+            playerId = "", // Apps Script yang akan mengisi
             playerRole = playerRole,
             playTime = playTime,
             location = location,
             completionTime = completionTime,
             correctAnswers = correct,
-            incorrectAnswers = incorrect
+            incorrectAnswers = incorrect,
+            sessionId = sessionGuid,
+            mistakeLogs = mistakeLogsStr
         };
 
         string json = JsonUtility.ToJson(payload);
-        StartCoroutine(PostRequest(json, playerRole, playTime, location, completionTime, correct, incorrect));
+        StartCoroutine(PostRequest(json, playerRole, playTime, location, completionTime, correct, incorrect, sessionGuid, mistakeLogsStr, isPlayer1));
     }
 
-    private IEnumerator PostRequest(string json, string playerRole, string playTime, string location, float completionTime, int correct, int incorrect)
+    private IEnumerator PostRequest(string json, string playerRole, string playTime, string location, float completionTime, int correct, int incorrect, string sessionGuid, string mistakeLogsStr, bool isPlayer1)
     {
         if (string.IsNullOrEmpty(googleSheetsUrl))
         {
             Debug.Log("[PlayerDataSaver] Google Sheets URL is not configured. Saving local CSV only.");
-            SaveLocalCSV(null, playerRole, playTime, location, completionTime, correct, incorrect);
+            SaveLocalCSV(null, null, playerRole, playTime, location, completionTime, correct, incorrect, mistakeLogsStr, sessionGuid, isPlayer1);
             yield break;
         }
 
@@ -250,31 +373,31 @@ public class PlayerDataSaver : MonoBehaviour
             if (request.result == UnityWebRequest.Result.Success)
             {
                 Debug.Log("[PlayerDataSaver] Successfully uploaded data to Google Sheets: " + request.downloadHandler.text);
-                
-                // Parse response untuk mendapatkan ID yang diberikan oleh Google Sheets
+
                 try
                 {
                     GoogleSheetsResponse response = JsonUtility.FromJson<GoogleSheetsResponse>(request.downloadHandler.text);
                     if (response != null && response.result == "success")
                     {
                         string assignedId = response.playerId > 0 ? response.playerId.ToString() : null;
-                        SaveLocalCSV(assignedId, playerRole, playTime, location, completionTime, correct, incorrect);
+                        string assignedPairId = response.pairId > 0 ? response.pairId.ToString() : null;
+                        SaveLocalCSV(assignedId, assignedPairId, playerRole, playTime, location, completionTime, correct, incorrect, mistakeLogsStr, sessionGuid, isPlayer1);
                     }
                     else
                     {
-                        SaveLocalCSV(null, playerRole, playTime, location, completionTime, correct, incorrect);
+                        SaveLocalCSV(null, null, playerRole, playTime, location, completionTime, correct, incorrect, mistakeLogsStr, sessionGuid, isPlayer1);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning("[PlayerDataSaver] Failed to parse Google Sheets response ID: " + ex.Message);
-                    SaveLocalCSV(null, playerRole, playTime, location, completionTime, correct, incorrect);
+                    Debug.LogWarning("[PlayerDataSaver] Failed to parse Google Sheets response IDs: " + ex.Message);
+                    SaveLocalCSV(null, null, playerRole, playTime, location, completionTime, correct, incorrect, mistakeLogsStr, sessionGuid, isPlayer1);
                 }
             }
             else
             {
                 Debug.LogWarning("[PlayerDataSaver] Failed to upload data to Google Sheets: " + request.error + ". Saving locally.");
-                SaveLocalCSV(null, playerRole, playTime, location, completionTime, correct, incorrect);
+                SaveLocalCSV(null, null, playerRole, playTime, location, completionTime, correct, incorrect, mistakeLogsStr, sessionGuid, isPlayer1);
             }
         }
     }
@@ -289,6 +412,8 @@ public class PlayerDataSaver : MonoBehaviour
         public float completionTime;
         public int correctAnswers;
         public int incorrectAnswers;
+        public string sessionId;
+        public string mistakeLogs;
     }
 
     [Serializable]
@@ -296,6 +421,7 @@ public class PlayerDataSaver : MonoBehaviour
     {
         public string result;
         public int playerId;
+        public int pairId;
         public string message;
     }
 }

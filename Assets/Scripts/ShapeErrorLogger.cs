@@ -65,6 +65,11 @@ public class ShapeErrorLogger : MonoBehaviour
     {
         wrongReleaseCount++;
 
+        if (PlayerDataSaver.Instance != null)
+        {
+            PlayerDataSaver.Instance.RecordMistake(shapeName);
+        }
+
         string cleanName = string.IsNullOrWhiteSpace(shapeName) ? "Shape" : shapeName;
         string message = $"Error: {cleanName} placed in wrong position\nMistakes: {wrongReleaseCount}";
         Debug.LogWarning($"[ShapeErrorLogger] {message.Replace('\n', ' ')}");
