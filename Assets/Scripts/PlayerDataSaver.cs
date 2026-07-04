@@ -14,7 +14,7 @@ public class PlayerDataSaver : NetworkBehaviour
 
     [Header("Google Sheets Integration")]
     [Tooltip("URL Web App dari Google Apps Script.")]
-    [SerializeField] private string googleSheetsUrl = "";
+    [SerializeField] private string googleSheetsUrl = "https://script.google.com/macros/s/AKfycby4Knc4pX_8Cy-we0xpP9P7gUBGOvDQ1ULVDT30PpaXXfKWRCHCeJKc5x17fcLCntfrCg/exec";
 
     [Header("Debug")]
     [SerializeField] private int correctAnswers = 0;
@@ -183,13 +183,13 @@ public class PlayerDataSaver : NetworkBehaviour
                 switch (RoomOption.Instance.CurrentRoom)
                 {
                     case RoomOption.Room.Sky:
-                        return "Choose Room - Space";
+                        return "Virtual Choose Room-Space";
                     case RoomOption.Room.School:
-                        return "Choose Room - School";
+                        return "Virtual Choose Room-School";
                     case RoomOption.Room.Office:
-                        return "Choose Room - Office";
+                        return "Virtual Choose Room-Office";
                     case RoomOption.Room.LivingRoom:
-                        return "Choose Room - Living Room";
+                        return "Virtual Choose Room-Living Room";
                 }
             }
             return "Virtual Choose Room";
