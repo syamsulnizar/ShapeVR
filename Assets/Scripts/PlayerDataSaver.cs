@@ -129,7 +129,7 @@ public class PlayerDataSaver : NetworkBehaviour
         {
             ulong clientId = nm.LocalClientId;
             isPlayer1 = clientId == 0;
-            playerRole = isPlayer1 ? "Player 1" : $"Player {clientId + 1}";
+            playerRole = isPlayer1 ? "Player 1" : "Player 2";
         }
 
         // 2. Play Time (GMT)
