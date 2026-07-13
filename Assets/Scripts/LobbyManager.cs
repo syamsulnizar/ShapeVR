@@ -165,11 +165,20 @@ public class LobbyManager : MonoBehaviour
             return;
         }
 
-        _pokePressed = true;
-        _selectedRoomType = roomType;
-        _selectedSceneName = sceneName;
-        SetRoomButtonsVisible(false);
-        StartCoroutine(WaitForEntitlementThenConnect());
+        // Intercept dengan ID Input Overlay sebelum memulai matchmaking
+        LobbyIdInputOverlay overlay = LobbyIdInputOverlay.Instance;
+        if (overlay == null)
+        {
+            overlay = gameObject.AddComponent<LobbyIdInputOverlay>();
+        }
+
+        overlay.ShowOverlay(roomType, sceneName, () =>
+        {
+            _pokePressed = true;
+            _selectedRoomType = roomType;
+            _selectedSceneName = sceneName;
+            StartCoroutine(WaitForEntitlementThenConnect());
+        }, roomButtonsRoot);
     }
 
     private IEnumerator WaitForEntitlementThenConnect()

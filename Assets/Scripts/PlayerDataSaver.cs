@@ -12,6 +12,9 @@ public class PlayerDataSaver : NetworkBehaviour
 {
     public static PlayerDataSaver Instance { get; private set; }
 
+    // Simpan ID yang diinput dari Lobby
+    public static string playerInputId = "";
+
     [Header("Google Sheets Integration")]
     [Tooltip("URL Web App dari Google Apps Script.")]
     [SerializeField] private string googleSheetsUrl = "https://script.google.com/macros/s/AKfycby4Knc4pX_8Cy-we0xpP9P7gUBGOvDQ1ULVDT30PpaXXfKWRCHCeJKc5x17fcLCntfrCg/exec";
@@ -203,15 +206,16 @@ public class PlayerDataSaver : NetworkBehaviour
         string header = "PlayerID,PairID,PlayerRole,PlayTimeGMT,Location,CompletionTime,CorrectAnswers,IncorrectAnswers,MistakeLogs,SessionID";
         string persistentPath = Path.Combine(Application.persistentDataPath, "PlayerData.csv");
 
-        string finalPlayerId = playerId;
-        string finalPairId = pairId;
-
-        // Fallback jika tidak terkoneksi internet / Google Sheets gagal merespon
-        if (string.IsNullOrEmpty(finalPlayerId) || string.IsNullOrEmpty(finalPairId))
+        string finalPlayerId = string.IsNullOrEmpty(playerId) ? playerInputId : playerId;
+        if (string.IsNullOrEmpty(finalPlayerId))
         {
-            GetLocalFallbackIds(persistentPath, isPlayer1, sessionGuid, out string fallbackPlayerId, out string fallbackPairId);
-            finalPlayerId = fallbackPlayerId;
-            finalPairId = fallbackPairId;
+            finalPlayerId = "Player";
+        }
+
+        string finalPairId = pairId;
+        if (string.IsNullOrEmpty(finalPairId))
+        {
+            finalPairId = GetLocalFallbackPairId(persistentPath, sessionGuid);
         }
 
         // Mistake logs dibungkus tanda kutip ganda ("...") agar koma di dalamnya tidak memecah kolom CSV
@@ -222,62 +226,32 @@ public class PlayerDataSaver : NetworkBehaviour
         string projectPath = Path.Combine(Application.dataPath, "PlayerData.csv");
         if (string.IsNullOrEmpty(playerId) || string.IsNullOrEmpty(pairId))
         {
-            GetLocalFallbackIds(projectPath, isPlayer1, sessionGuid, out string fallbackPlayerId, out string fallbackPairId);
-            finalPlayerId = fallbackPlayerId;
-            finalPairId = fallbackPairId;
+            finalPairId = GetLocalFallbackPairId(projectPath, sessionGuid);
         }
         csvLine = $"{finalPlayerId},{finalPairId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect},\"{mistakeLogsStr}\",{sessionGuid}";
         WriteRowToFile(projectPath, header, csvLine);
 #endif
     }
 
-    private void GetLocalFallbackIds(string filePath, bool isPlayer1, string sessionGuid, out string fallbackPlayerId, out string fallbackPairId)
+    private string GetLocalFallbackPairId(string filePath, string sessionGuid)
     {
-        if (!File.Exists(filePath))
-        {
-            fallbackPlayerId = isPlayer1 ? "1" : "2";
-            fallbackPairId = "1";
-            return;
-        }
+        if (!File.Exists(filePath)) return "1";
 
         try
         {
             string[] lines = File.ReadAllLines(filePath);
-            if (lines.Length <= 1) // Hanya header
-            {
-                fallbackPlayerId = isPlayer1 ? "1" : "2";
-                fallbackPairId = "1";
-                return;
-            }
+            if (lines.Length <= 1) return "1";
 
-            int maxOdd = 0;
-            int maxEven = 0;
             int maxPair = 0;
             string existingPairId = null;
 
             for (int i = 1; i < lines.Length; i++)
             {
                 string[] parts = lines[i].Split(',');
-                if (parts.Length > 9) // Setidaknya ada 10 kolom (index 0 sampai 9)
+                if (parts.Length > 9)
                 {
-                    string idStr = parts[0];
                     string pairStr = parts[1];
-                    string sessId = parts[9];
-
-                    // Hapus tanda kutip ganda jika ada pada session ID
-                    sessId = sessId.Replace("\"", "").Trim();
-
-                    if (int.TryParse(idStr, out int idVal))
-                    {
-                        if (idVal % 2 != 0)
-                        {
-                            if (idVal > maxOdd) maxOdd = idVal;
-                        }
-                        else
-                        {
-                            if (idVal > maxEven) maxEven = idVal;
-                        }
-                    }
+                    string sessId = parts[9].Replace("\"", "").Trim();
 
                     if (int.TryParse(pairStr, out int pairVal))
                     {
@@ -291,24 +265,16 @@ public class PlayerDataSaver : NetworkBehaviour
                 }
             }
 
-            fallbackPlayerId = isPlayer1 
-                ? (maxOdd == 0 ? 1 : maxOdd + 2).ToString() 
-                : (maxEven == 0 ? 2 : maxEven + 2).ToString();
-
             if (!string.IsNullOrEmpty(existingPairId))
             {
-                fallbackPairId = existingPairId;
+                return existingPairId;
             }
-            else
-            {
-                fallbackPairId = (maxPair + 1).ToString();
-            }
+            return (maxPair + 1).ToString();
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[PlayerDataSaver] Error calculating fallback IDs: {ex.Message}");
-            fallbackPlayerId = isPlayer1 ? "1" : "2";
-            fallbackPairId = "1";
+            Debug.LogError($"[PlayerDataSaver] Error calculating fallback PairID: {ex.Message}");
+            return "1";
         }
     }
 
@@ -337,7 +303,7 @@ public class PlayerDataSaver : NetworkBehaviour
     {
         PlayerDataPayload payload = new PlayerDataPayload
         {
-            playerId = "", // Apps Script yang akan mengisi
+            playerId = string.IsNullOrEmpty(playerInputId) ? "Player" : playerInputId,
             playerRole = playerRole,
             playTime = playTime,
             location = location,
@@ -379,7 +345,7 @@ public class PlayerDataSaver : NetworkBehaviour
                     GoogleSheetsResponse response = JsonUtility.FromJson<GoogleSheetsResponse>(request.downloadHandler.text);
                     if (response != null && response.result == "success")
                     {
-                        string assignedId = response.playerId > 0 ? response.playerId.ToString() : null;
+                        string assignedId = !string.IsNullOrEmpty(response.playerId) ? response.playerId : null;
                         string assignedPairId = response.pairId > 0 ? response.pairId.ToString() : null;
                         SaveLocalCSV(assignedId, assignedPairId, playerRole, playTime, location, completionTime, correct, incorrect, mistakeLogsStr, sessionGuid, isPlayer1);
                     }
@@ -420,7 +386,7 @@ public class PlayerDataSaver : NetworkBehaviour
     private class GoogleSheetsResponse
     {
         public string result;
-        public int playerId;
+        public string playerId;
         public int pairId;
         public string message;
     }
