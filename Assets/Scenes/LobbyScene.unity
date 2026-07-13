@@ -25948,7 +25948,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &947652676
 Transform:
   m_ObjectHideFlags: 0
@@ -55012,12 +55012,27 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e749e78edf8eeb944abae4d6f39c739b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LobbyIdInputOverlay
-  googleSheetsUrl: https://script.google.com/macros/s/AKfycby4Knc4pX_8Cy-we0xpP9P7gUBGOvDQ1ULVDT30PpaXXfKWRCHCeJKc5x17fcLCntfrCg/exec
+  googleSheetsUrl: https://script.google.com/macros/s/AKfycbyWE2ZoKenCJyIehtyDxyPrlNfbE9iXurXoZuhrnlYYF2kOlzWS6nN9bBdiU--CZMXeJw/exec
   keyboardContainer: {fileID: 947652674}
   idDisplayText: {fileID: 854809949}
   statusText: {fileID: 1437076816}
   submitButtonObj: {fileID: 1508868833}
   currentInput: 
+  onValidIDEvent:
+    m_PersistentCalls:
+      m_Calls:
+      - m_Target: {fileID: 1932337181}
+        m_TargetAssemblyTypeName: UnityEngine.GameObject, UnityEngine
+        m_MethodName: SetActive
+        m_Mode: 6
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 1
+        m_CallState: 2
 --- !u!1 &1888239793
 GameObject:
   m_ObjectHideFlags: 0

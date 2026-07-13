@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using TMPro;
 using Oculus.Interaction;
+using UnityEngine.Events;
 
 public class LobbyIdInputOverlay : MonoBehaviour
 {
@@ -20,6 +21,7 @@ public class LobbyIdInputOverlay : MonoBehaviour
     [SerializeField] private string currentInput = "";
     private Action onValidId;
     private GameObject roomButtons;
+    [SerializeField] private UnityEvent onValidIDEvent;
 
     private void Awake()
     {
@@ -232,18 +234,34 @@ public class LobbyIdInputOverlay : MonoBehaviour
 
     private IEnumerator CheckIdOnServer(string id)
     {
-        string checkUrl = $"{googleSheetsUrl}?action=checkId&id={Uri.EscapeDataString(id)}";
+        string currentGmtTime = DateTime.UtcNow.ToString("dd/MM/yyyy HH:mm:ss") + " GMT";
         
+        // Buat payload untuk POST request
+        ReservePayload payload = new ReservePayload
+        {
+            action = "reserveId",
+            playerId = id,
+            playTime = currentGmtTime,
+            sessionId = "LobbyReservation"
+        };
+        
+        string json = JsonUtility.ToJson(payload);
+
         if (statusText != null)
         {
-            statusText.text = "Checking ID uniqueness...";
+            statusText.text = "Checking and reserving ID...";
             statusText.color = Color.white;
         }
         SetSubmitButtonActive(false);
 
-        using (UnityWebRequest request = UnityWebRequest.Get(checkUrl))
+        using (UnityWebRequest request = new UnityWebRequest(googleSheetsUrl, "POST"))
         {
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
             request.timeout = 8;
+            
             yield return request.SendWebRequest();
 
             SetSubmitButtonActive(true);
@@ -253,36 +271,39 @@ public class LobbyIdInputOverlay : MonoBehaviour
                 try
                 {
                     IdCheckResponse response = JsonUtility.FromJson<IdCheckResponse>(request.downloadHandler.text);
-                    if (response != null && response.result == "success")
+                    if (response != null)
                     {
-                        if (response.exists)
-                        {
-                            if (statusText != null)
-                            {
-                                statusText.text = "ID already used, please use another ID";
-                                statusText.color = Color.red;
-                            }
-                        }
-                        else
+                        if (response.result == "success")
                         {
                             PlayerDataSaver.playerInputId = id;
                             if (keyboardContainer != null) keyboardContainer.SetActive(false);
+                            onValidIDEvent?.Invoke();
                             onValidId?.Invoke();
+                        }
+                        else
+                        {
+                            if (statusText != null)
+                            {
+                                statusText.text = response.message.Contains("taken") || response.message.Contains("used") ? "ID already used, please use another ID" : response.message;
+                                statusText.color = Color.red;
+                            }
                         }
                     }
                     else
                     {
-                        Debug.LogWarning("[LobbyIdInputOverlay] Apps Script error. Proceeding anyway.");
+                        Debug.LogWarning("[LobbyIdInputOverlay] Parse error. Proceeding anyway.");
                         PlayerDataSaver.playerInputId = id;
                         if (keyboardContainer != null) keyboardContainer.SetActive(false);
+                        onValidIDEvent?.Invoke();
                         onValidId?.Invoke();
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning("[LobbyIdInputOverlay] Parse error: " + ex.Message + ". Proceeding anyway.");
+                    Debug.LogWarning("[LobbyIdInputOverlay] Parse error exception: " + ex.Message + ". Proceeding anyway.");
                     PlayerDataSaver.playerInputId = id;
                     if (keyboardContainer != null) keyboardContainer.SetActive(false);
+                    onValidIDEvent?.Invoke();
                     onValidId?.Invoke();
                 }
             }
@@ -291,9 +312,19 @@ public class LobbyIdInputOverlay : MonoBehaviour
                 Debug.LogWarning("[LobbyIdInputOverlay] Network error: " + request.error + ". Proceeding anyway.");
                 PlayerDataSaver.playerInputId = id;
                 if (keyboardContainer != null) keyboardContainer.SetActive(false);
+                onValidIDEvent?.Invoke();
                 onValidId?.Invoke();
             }
         }
+    }
+
+    [Serializable]
+    private class ReservePayload
+    {
+        public string action;
+        public string playerId;
+        public string playTime;
+        public string sessionId;
     }
 
     [Serializable]
