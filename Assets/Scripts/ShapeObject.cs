@@ -32,7 +32,7 @@ using Oculus.Interaction;
 [RequireComponent(typeof(NetworkObject))]
 public class ShapeObject : NetworkBehaviour
 {
-    /// <summary>State authoritative — hanya server yang menulis.</summary>
+    /// <summary>State authoritative — server-authoritative only.</summary>
     public NetworkVariable<bool> IsShaped = new NetworkVariable<bool>(
         false,
         readPerm: NetworkVariableReadPermission.Everyone,
@@ -50,13 +50,13 @@ public class ShapeObject : NetworkBehaviour
     public bool isShaped => IsShaped.Value;
 
     [Header("Visual / SFX")]
-    [Tooltip("MeshRenderer ghost di Board — di-enable saat hover (preview), disable saat snapped.")]
+    [Tooltip("MeshRenderer ghost on the Board — enabled on hover (preview), disabled when snapped.")]
     [SerializeField] private MeshRenderer silhouetteRenderer;
-    [Tooltip("AudioSource untuk SFX snap. Kosongkan jika tidak perlu.")]
+    [Tooltip("AudioSource for snap SFX. Leave empty if not needed.")]
     [SerializeField] private AudioSource snapSfx;
-    [Tooltip("Delay pendek agar SnapInteractor sempat mengubah state setelah shape dilepas.")]
+    [Tooltip("Short delay to allow the SnapInteractor time to change state after the shape is released.")]
     [SerializeField] private float wrongReleaseCheckDelay = 0.2f;
-    [Tooltip("Tambahan area cek overlap dengan snap board saat shape dilepas.")]
+    [Tooltip("Additional area to check overlap with the snap board when the shape is released.")]
     [SerializeField] private float wrongSnapOverlapPadding = 0.03f;
 
     private GameManager _gameManager;
@@ -69,7 +69,7 @@ public class ShapeObject : NetworkBehaviour
         IsShaped.OnValueChanged += HandleShapedChanged;
         IsHovered.OnValueChanged += HandleHoverChanged;
 
-        // Apply state awal (untuk client yang join mid-game)
+        // Apply initial state (for clients joining mid-game)
         ApplyVisual();
 
         if (IsServer)
@@ -245,23 +245,29 @@ public class ShapeObject : NetworkBehaviour
         _wrongReleaseRoutine = null;
 
         if (IsShaped.Value) yield break;
-        if (!IsReleasedOnWrongBoardSnap()) yield break;
+        
+        Collider wrongCollider = GetWrongBoardSnapCollider();
+        if (wrongCollider == null) yield break;
 
         ShapeErrorLogger logger = ShapeErrorLogger.Instance;
         if (logger == null)
             logger = FindFirstObjectByType<ShapeErrorLogger>();
 
         if (logger != null)
-            logger.ReportWrongRelease(gameObject.name);
+        {
+            string shapeName = gameObject.name;
+            string targetName = wrongCollider.gameObject.name.Replace(" Snap", "").Replace(" snap", "");
+            logger.ReportWrongReleaseDetailed(shapeName, targetName);
+        }
     }
 
-    private bool IsReleasedOnWrongBoardSnap()
+    private Collider GetWrongBoardSnapCollider()
     {
         if (_shapeCollider == null)
             _shapeCollider = GetComponent<Collider>();
 
         if (_shapeCollider == null)
-            return false;
+            return null;
 
         Bounds bounds = _shapeCollider.bounds;
         Vector3 halfExtents = bounds.extents + Vector3.one * wrongSnapOverlapPadding;
@@ -274,10 +280,10 @@ public class ShapeObject : NetworkBehaviour
             if (!IsBoardSnapCollider(hit)) continue;
             if (IsCorrectSnapCollider(hit)) continue;
 
-            return true;
+            return hit;
         }
 
-        return false;
+        return null;
     }
 
     private bool IsBoardSnapCollider(Collider hit)

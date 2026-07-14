@@ -14,11 +14,11 @@ using TMPro;
 public class ReturnToLobbyUI : MonoBehaviour
 {
     [Header("UI References")]
-    [Tooltip("Root panel yang di-toggle on/off.")]
+    [Tooltip("Root panel that is toggled on/off.")]
     [SerializeField] private GameObject panel;
-    [Tooltip("Text untuk countdown (mis. '5').")]
+    [Tooltip("Countdown text (e.g. '5').")]
     [SerializeField] private TMP_Text countdownText;
-    [Tooltip("Text alasan (mis. 'Permainan selesai!' / 'Player keluar...').")]
+    [Tooltip("Reason text (e.g. 'Game finished!' / 'Player left...').")]
     [SerializeField] private TMP_Text reasonText;
 
     private float _remaining;

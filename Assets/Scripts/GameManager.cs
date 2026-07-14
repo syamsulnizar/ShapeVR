@@ -26,20 +26,20 @@ public class GameManager : NetworkBehaviour
     }
 
     [Header("Win Detection")]
-    [Tooltip("Semua slot piece bentuk. Drag 9 ShapeObject di Inspector.")]
+    [Tooltip("All shape piece slots. Drag 9 ShapeObject in the Inspector.")]
     public ShapeObject[] shapeObjects;
 
-    [Tooltip("UnityEvent yang dipanggil di SEMUA client saat puzzle selesai (untuk SFX kemenangan, animasi, dll).")]
+    [Tooltip("UnityEvent called on ALL clients when the puzzle is completed (for victory SFX, animation, etc.).")]
     public UnityEvent Won;
 
     [Header("Countdown Durations")]
-    [Tooltip("Detik countdown auto-return-to-lobby setelah menang.")]
+    [Tooltip("Countdown seconds to auto-return to lobby after winning.")]
     [SerializeField] private float winCountdownSeconds = 5f;
-    [Tooltip("Detik countdown saat player lain disconnect mid-game.")]
+    [Tooltip("Countdown seconds when another player disconnects mid-game.")]
     [SerializeField] private float disconnectCountdownSeconds = 3f;
 
     [Header("UI")]
-    [Tooltip("UI Panel countdown ke lobby (di world-space Canvas, di-attach di kamera VR).")]
+    [Tooltip("Lobby countdown UI Panel (in world-space Canvas, attached to VR camera).")]
     [SerializeField] private ReturnToLobbyUI returnToLobbyUI;
 
     [Header("Reason Texts")]

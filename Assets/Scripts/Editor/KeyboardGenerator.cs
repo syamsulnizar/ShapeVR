@@ -9,7 +9,7 @@ public class KeyboardGenerator : EditorWindow
     [MenuItem("Tools/Generate 3D Keyboard")]
     public static void GenerateKeyboard()
     {
-        // 1. Cari template di scene
+        // 1. Find template in the scene
         GameObject templateButton = null;
         var interactables = FindObjectsByType<PokeInteractable>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         foreach (var p in interactables)
@@ -27,7 +27,7 @@ public class KeyboardGenerator : EditorWindow
             return;
         }
 
-        // 2. Cari parent "Button Room" untuk menaruh keyboard di tempat yang sama
+        // 2. Find parent "Button Room" to place the keyboard in the same location
         GameObject roomButtons = GameObject.Find("OVRCameraRig/TrackingSpace/CenterEyeAnchor/HoverButtons/Button Room");
         Transform parentTransform = null;
         Vector3 spawnPos = Vector3.zero;
@@ -44,7 +44,7 @@ public class KeyboardGenerator : EditorWindow
             Debug.LogWarning("GameObject 'Button Room' tidak ditemukan, keyboard akan diletakkan di root scene.");
         }
 
-        // 3. Buat Keyboard Container
+        // 3. Create Keyboard Container
         GameObject keyboardRoot = new GameObject("3DKeyboard");
         if (parentTransform != null)
         {
@@ -87,7 +87,7 @@ public class KeyboardGenerator : EditorWindow
             bgRenderer.material.color = new Color(0.12f, 0.12f, 0.15f, 0.95f);
         }
 
-        // Font Asset dari template
+        // Font Asset from template
         TextMeshPro templateText = templateButton.GetComponentInChildren<TextMeshPro>();
 
         // Title Text
@@ -173,7 +173,7 @@ public class KeyboardGenerator : EditorWindow
             ClearPersistentListeners(actBtn);
         }
 
-        // Tandai scene telah berubah agar bisa di-save
+        // Mark the scene as dirty so it can be saved
         EditorUtility.SetDirty(keyboardRoot);
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
 

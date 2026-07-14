@@ -12,17 +12,17 @@ public class PlayerDataSaver : NetworkBehaviour
 {
     public static PlayerDataSaver Instance { get; private set; }
 
-    // Simpan ID yang diinput dari Lobby
+    // Save the ID input from Lobby
     public static string playerInputId = "";
 
     [Header("Google Sheets Integration")]
-    [Tooltip("URL Web App dari Google Apps Script.")]
+    [Tooltip("Web App URL from Google Apps Script.")]
     [SerializeField] private string googleSheetsUrl = "https://script.google.com/macros/s/AKfycby4Knc4pX_8Cy-we0xpP9P7gUBGOvDQ1ULVDT30PpaXXfKWRCHCeJKc5x17fcLCntfrCg/exec";
 
     [Header("Debug")]
     [SerializeField] private int correctAnswers = 0;
 
-    // NetworkVariable untuk sinkronisasi Session ID yang sama antar kedua player
+    // NetworkVariable to synchronize the same Session ID between both players
     private readonly NetworkVariable<FixedString64Bytes> sessionId = new NetworkVariable<FixedString64Bytes>(
         writePerm: NetworkVariableWritePermission.Server
     );
@@ -44,7 +44,7 @@ public class PlayerDataSaver : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        // Hanya Server/Host yang generate Session ID unik di awal permainan
+        // Only Server/Host generates a unique Session ID at the start of the game
         if (IsServer)
         {
             sessionId.Value = Guid.NewGuid().ToString();
@@ -57,7 +57,7 @@ public class PlayerDataSaver : NetworkBehaviour
         dataSaved = false;
         mistakeLogs.Clear();
 
-        // Cari GameManager dan daftarkan ke event Won
+        // Find GameManager and subscribe to the Won event
         GameManager gameManager = FindFirstObjectByType<GameManager>();
         if (gameManager != null)
         {
@@ -124,7 +124,7 @@ public class PlayerDataSaver : NetworkBehaviour
 
     private void SavePlayerData()
     {
-        // 1. Tentukan Player Role (Player 1 atau Player 2)
+        // 1. Determine Player Role (Player 1 or Player 2)
         string playerRole = "Player 1";
         bool isPlayer1 = true;
         var nm = NetworkManager.Singleton;
@@ -138,7 +138,7 @@ public class PlayerDataSaver : NetworkBehaviour
         // 2. Play Time (GMT)
         string playTime = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + " GMT";
 
-        // 3. Location (Main Di mana)
+        // 3. Location (Where it is played)
         string location = GetCurrentLocation();
 
         // 4. Completion Time
@@ -159,7 +159,7 @@ public class PlayerDataSaver : NetworkBehaviour
 
         Debug.Log($"[PlayerDataSaver] Session Completed: Role={playerRole}, PlayTime={playTime}, Location={location}, Duration={completionTime:0.00}s, Correct={correct}, Incorrect={incorrect}, Mistakes={mistakeLogsStr}, SessionID={sessionGuid}");
 
-        // Kirim data ke Google Sheets (dan local CSV setelah selesai/gagal)
+        // Send data to Google Sheets (and local CSV after finished/failed)
         SendToGoogleSheets(playerRole, playTime, location, completionTime, correct, incorrect, sessionGuid, mistakeLogsStr, isPlayer1);
     }
 
@@ -218,7 +218,7 @@ public class PlayerDataSaver : NetworkBehaviour
             finalPairId = GetLocalFallbackPairId(persistentPath, sessionGuid);
         }
 
-        // Mistake logs dibungkus tanda kutip ganda ("...") agar koma di dalamnya tidak memecah kolom CSV
+        // Mistake logs are wrapped in double quotes ("...") so that commas inside do not break the CSV columns
         string csvLine = $"{finalPlayerId},{finalPairId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect},\"{mistakeLogsStr}\",{sessionGuid}";
         WriteRowToFile(persistentPath, header, csvLine);
 

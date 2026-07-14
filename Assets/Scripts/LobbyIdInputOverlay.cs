@@ -39,10 +39,10 @@ public class LobbyIdInputOverlay : MonoBehaviour
         roomButtons = roomButtonsRoot;
         currentInput = "";
 
-        // Sembunyikan tombol room
+        // Hide room buttons
         if (roomButtons != null) roomButtons.SetActive(false);
 
-        // Setup dan hubungkan keyboard yang ada di scene
+        // Setup and connect the keyboard in the scene
         SetupSceneKeyboard();
     }
 
@@ -50,7 +50,7 @@ public class LobbyIdInputOverlay : MonoBehaviour
     {
         if (keyboardContainer == null)
         {
-            // Cari GameObject "3DKeyboard" di scene
+            // Find GameObject "3DKeyboard" in the scene
             keyboardContainer = GameObject.Find("3DKeyboard");
             if (keyboardContainer == null)
             {
@@ -66,14 +66,14 @@ public class LobbyIdInputOverlay : MonoBehaviour
             return;
         }
 
-        // Cari DisplayText dan StatusText
+        // Find DisplayText and StatusText
         Transform dispTrans = keyboardContainer.transform.Find("DisplayText");
         if (dispTrans != null) idDisplayText = dispTrans.GetComponent<TextMeshPro>();
 
         Transform statusTrans = keyboardContainer.transform.Find("StatusText");
         if (statusTrans != null) statusText = statusTrans.GetComponent<TextMeshPro>();
 
-        // Cari dan setup callback tombol-tombol
+        // Find and setup callbacks for buttons
         foreach (Transform child in keyboardContainer.transform)
         {
             if (child.name.StartsWith("Key_"))
@@ -104,7 +104,7 @@ public class LobbyIdInputOverlay : MonoBehaviour
             }
         }
 
-        // Tampilkan keyboard
+        // Show keyboard
         keyboardContainer.SetActive(true);
         UpdateDisplay();
     }
@@ -113,7 +113,7 @@ public class LobbyIdInputOverlay : MonoBehaviour
     {
         try
         {
-            // Pastikan wrapper event sudah ada
+            // Make sure event wrapper already exists
             var wrapper = btnObj.GetComponent<InteractableUnityEventWrapper>();
             if (wrapper == null)
             {
@@ -122,7 +122,7 @@ public class LobbyIdInputOverlay : MonoBehaviour
                 if (poke != null) wrapper.InjectInteractableView(poke);
             }
 
-            // Bersihkan listener runtime lama dan daftarkan listener baru
+            // Clear old runtime listeners and register new ones
             wrapper.WhenUnselect.RemoveAllListeners();
             wrapper.WhenUnselect.AddListener(() => onClickAction());
         }
@@ -236,7 +236,7 @@ public class LobbyIdInputOverlay : MonoBehaviour
     {
         string currentGmtTime = DateTime.UtcNow.ToString("dd/MM/yyyy HH:mm:ss") + " GMT";
         
-        // Buat payload untuk POST request
+        // Create payload for POST request
         ReservePayload payload = new ReservePayload
         {
             action = "reserveId",

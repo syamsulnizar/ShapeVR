@@ -2,32 +2,32 @@ using System.Collections;
 using UnityEngine;
 
 /// <summary>
-/// Atur mode XR per scene: VR (lihat skybox / virtual environment) atau
-/// Passthrough (lihat dunia nyata via OVR Insight Passthrough).
+/// Set XR mode per scene: VR (see skybox / virtual environment) or
+/// Passthrough (see the real world via OVR Insight Passthrough).
 ///
-/// MASALAH YANG DI-SOLVE:
-///   OVRManager adalah singleton DontDestroyOnLoad. Setting passthrough di
-///   Inspector OVRManager scene baru tidak pernah di-apply karena singleton
-///   dari scene pertama yang persist. Solusinya: paksa toggle di runtime.
+/// PROBLEM SOLVED:
+///   OVRManager is a DontDestroyOnLoad singleton. Setting passthrough in the
+///   OVRManager Inspector of a new scene is never applied because the singleton
+///   from the first scene persists. Solution: force toggle at runtime.
 ///
-/// CARA PAKAI:
-///   - Attach 1 GameObject XRModeController per scene.
+/// HOW TO USE:
+///   - Attach 1 XRModeController GameObject per scene.
 ///   - Set `mode`:
 ///       Passthrough -> enable passthrough, see real world
 ///       VR          -> disable passthrough, see skybox
-///   - Drag OVRPassthroughLayer + CenterEyeAnchor Camera (untuk toggle clear flag).
+///   - Drag OVRPassthroughLayer + CenterEyeAnchor Camera (to toggle clear flag).
 /// </summary>
 public class XRModeController : MonoBehaviour
 {
     public enum Mode { Passthrough, VR }
 
-    [Tooltip("Mode XR untuk scene ini.")]
+    [Tooltip("XR mode for this scene.")]
     [SerializeField] private Mode mode = Mode.Passthrough;
 
     [Header("Refs")]
-    [Tooltip("OVRPassthroughLayer di scene (hanya dibutuhkan untuk Passthrough mode).")]
+    [Tooltip("OVRPassthroughLayer in the scene (only needed for Passthrough mode).")]
     [SerializeField] private OVRPassthroughLayer passthroughLayer;
-    [Tooltip("CenterEyeAnchor Camera. Akan di-set ClearFlag/background sesuai mode.")]
+    [Tooltip("CenterEyeAnchor Camera. ClearFlag/background will be set according to the mode.")]
     [SerializeField] private Camera centerEyeCamera;
 
     [Header("Debug")]
@@ -46,7 +46,7 @@ public class XRModeController : MonoBehaviour
 
     private IEnumerator ApplyModeCoroutine()
     {
-        // Tunggu OVRManager.instance ada
+        // Wait for OVRManager.instance to exist
         int waitFrames = 0;
         while (OVRManager.instance == null && waitFrames < 60)
         {
@@ -72,14 +72,14 @@ public class XRModeController : MonoBehaviour
 
     private IEnumerator ApplyPassthroughMode()
     {
-        // 1. Enable insight passthrough di OVRManager
+        // 1. Enable insight passthrough in OVRManager
         if (!OVRManager.instance.isInsightPassthroughEnabled)
         {
             OVRManager.instance.isInsightPassthroughEnabled = true;
             Log("OVRManager.isInsightPassthroughEnabled = true");
         }
 
-        // 2. Set Camera ClearFlag SolidColor + transparent (alpha 0)
+        // 2. Set Camera ClearFlag to SolidColor + transparent (alpha 0)
         if (centerEyeCamera != null)
         {
             centerEyeCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -87,7 +87,7 @@ public class XRModeController : MonoBehaviour
             Log("Camera ClearFlag=SolidColor, bg=(0,0,0,0)");
         }
 
-        // 3. Tunggu sampai passthrough OS-level initialized
+        // 3. Wait until OS-level passthrough is initialized
         int waitInit = 0;
         while (!OVRManager.IsInsightPassthroughInitialized() && waitInit < 120)
         {
@@ -129,7 +129,7 @@ public class XRModeController : MonoBehaviour
             Log("Camera ClearFlag=Skybox.");
         }
 
-        // 3. Hide PassthroughLayer kalau ada (jaga-jaga)
+        // 3. Hide PassthroughLayer if it exists (just in case)
         if (passthroughLayer != null)
         {
             passthroughLayer.hidden = true;

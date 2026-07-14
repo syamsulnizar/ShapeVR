@@ -7,28 +7,28 @@ using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
 
 /// <summary>
-/// Utility statis untuk kembali ke LobbyScene dari mana pun, DENGAN clean state
-/// (Shutdown NGO + cleanup Lobby/Relay) supaya bisa play lagi tanpa restart app.
+/// Static utility to return to LobbyScene from anywhere, WITH a clean state
+/// (Shutdown NGO + cleanup Lobby/Relay) so that you can play again without restarting the app.
 ///
-/// CARA PAKAI:
-///   - LobbyReturn.Go();        // Sederhana: shutdown lalu pindah scene
-///   - LobbyReturn.Go(monoBehaviour);  // Pakai coroutine untuk delay shutdown smooth
+/// HOW TO USE:
+///   - LobbyReturn.Go();        // Simple: shutdown then change scene
+///   - LobbyReturn.Go(monoBehaviour);  // Use coroutine for smooth shutdown delay
 ///
 /// FLOW:
-///   1. Cleanup Lobby (delete kalau host, leave kalau client) — fire-and-forget,
-///      tidak menunggu agar UI tidak nge-hang.
-///   2. NetworkManager.Shutdown() (untuk semua role).
-///   3. SceneManager.LoadScene("LobbyScene") via Unity biasa.
+///   1. Cleanup Lobby (delete if host, leave if client) — fire-and-forget,
+///      no waiting so the UI does not hang.
+///   2. NetworkManager.Shutdown() (for all roles).
+///   3. SceneManager.LoadScene("LobbyScene") via standard Unity.
 ///
-/// Penting: ini TIDAK pakai NGO LoadScene, karena NGO baru saja shutdown.
+/// Important: this does NOT use NGO LoadScene, because NGO was just shut down.
 /// </summary>
 public static class LobbyReturn
 {
     public const string LobbySceneName = "LobbyScene";
 
     /// <summary>
-    /// Pulang ke lobby SECEPATNYA (tanpa coroutine).
-    /// Cocok dipanggil dari Button.OnClick atau coroutine countdown lain.
+    /// Return to the lobby AS SOON AS POSSIBLE (without coroutine).
+    /// Suitable to be called from Button.OnClick or other countdown coroutines.
     /// </summary>
     public static void Go()
     {
@@ -38,8 +38,8 @@ public static class LobbyReturn
     }
 
     /// <summary>
-    /// Cleanup Lobby (delete kalau host, leave kalau client).
-    /// Fire-and-forget — kalau gagal, log saja, tidak block.
+    /// Cleanup Lobby (delete if host, leave if client).
+    /// Fire-and-forget — if it fails, just log it, do not block.
     /// </summary>
     private static void TryCleanupLobbyService()
     {
@@ -51,12 +51,12 @@ public static class LobbyReturn
             var lobby = LobbyService.Instance;
             if (lobby == null) return;
 
-            // Cari LobbyManager untuk dapatkan _connectedLobby (bukan static, jadi
-            // skip di sini — LobbyManager.OnDestroy sebenarnya sudah handle ini saat
-            // scene berubah). Cleanup di sini cuma extra safety.
+            // Find LobbyManager to get _connectedLobby (not static, so
+            // skip here — LobbyManager.OnDestroy actually already handles this when
+            // the scene changes). Cleanup here is just for extra safety.
             //
-            // Kalau ingin force cleanup all lobby: pakai LobbyService GetJoinedLobbies
-            // lalu remove. Tapi itu butuh await. Untuk simpel: skip di sini, andalkan
+            // If you want to force cleanup all lobbies: use LobbyService GetJoinedLobbies
+            // and then remove. But that requires await. For simplicity: skip here, rely on
             // LobbyManager.OnDestroy.
         }
         catch (System.Exception e)
@@ -72,8 +72,8 @@ public static class LobbyReturn
 
         try
         {
-            // Force unsubscribe semua callback yang mungkin di-attach dari script lain
-            // (best-effort; subscriber individu tetap perlu unsubscribe sendiri).
+            // Force unsubscribe all callbacks that might be attached from other scripts
+            // (best-effort; individual subscribers still need to unsubscribe themselves).
             if (nm.IsListening || nm.IsServer || nm.IsClient)
             {
                 nm.Shutdown();

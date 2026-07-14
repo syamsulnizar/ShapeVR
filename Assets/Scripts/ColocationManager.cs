@@ -5,26 +5,26 @@ using UnityEngine;
 using Unity.Netcode;
 
 /// <summary>
-/// Colocation manager v4 — auto-place table di depan host SETELAH client
-/// selesai colocating.
+/// Colocation manager v4 — auto-place table in front of host AFTER client
+/// finishes colocating.
 ///
 /// FLOW:
 ///   HOST:
-///     1. Create + Save + Share anchor (posisi target = depan host, jarak kecil)
-///     2. Broadcast UUID ke client
-///     3. TUNGGU sinyal dari client via ClientColocationReadyServerRpc:
-///         - success=true  -> auto-place table di depan host, broadcast offset
-///         - success=false -> host place table di local saja (no sync)
+///     1. Create + Save + Share anchor (target position = in front of host, short distance)
+///     2. Broadcast UUID to client
+///     3. WAIT for signal from client via ClientColocationReadyServerRpc:
+///         - success=true  -> auto-place table in front of host, broadcast offset
+///         - success=false -> host places table locally only (no sync)
 ///
 ///   CLIENT:
-///     1. Terima UUID -> load + localize anchor
-///     2. Sukses -> ClientColocationReadyServerRpc(true)
-///     3. Gagal  -> UI failed + tombol Retry/Cancel
+///     1. Receive UUID -> load + localize anchor
+///     2. Success -> ClientColocationReadyServerRpc(true)
+///     3. Failed  -> UI failed + Retry/Cancel buttons
 ///         - Cancel -> ContinueAnyway() -> ClientColocationReadyServerRpc(false)
-///         - Retry  -> ulang dari awal
+///         - Retry  -> start over from beginning
 ///
-/// Saat host place table sukses, broadcast localOffset (relatif anchor).
-/// Kedua sisi follow anchor via LateUpdate.
+/// When host places table successfully, broadcast localOffset (relative to anchor).
+/// Both sides follow anchor via LateUpdate.
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class ColocationManager : NetworkBehaviour
@@ -41,13 +41,13 @@ public class ColocationManager : NetworkBehaviour
     [SerializeField] private float anchorCreateTimeout = 10f;
     [SerializeField] private float anchorShareTimeout = 15f;
     [SerializeField] private float clientLoadTimeout = 20f;
-    [Tooltip("Jarak table dari host (meter). Kecil = dekat host.")]
+    [Tooltip("Distance of the table from the host (meters). Small = close to host.")]
     [SerializeField] private float spawnDistanceFromHost = 0.6f;
 
-    [Header("Visual Events (wire MeshRenderer + Collider toggle di Inspector)")]
-    [Tooltip("Dipanggil saat scene start. Wire ke MeshRenderer.enabled=false + Collider.enabled=false untuk semua piece + Board.")]
+    [Header("Visual Events (wire MeshRenderer + Collider toggle in Inspector)")]
+    [Tooltip("Called when scene starts. Wire to MeshRenderer.enabled=false + Collider.enabled=false for all pieces + Board.")]
     public UnityEngine.Events.UnityEvent onHideVisuals;
-    [Tooltip("Dipanggil setelah table placed. Wire ke MeshRenderer.enabled=true + Collider.enabled=true untuk semua piece + Board.")]
+    [Tooltip("Called after table placed. Wire to MeshRenderer.enabled=true + Collider.enabled=true for all pieces + Board.")]
     public UnityEngine.Events.UnityEvent onShowVisuals;
 
     private State _state = State.Idle;
@@ -67,8 +67,8 @@ public class ColocationManager : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        // Jangan SetActive(false) WorldRoot! Hide MeshRenderer + Collider saja
-        // supaya lifecycle ISDK component identik dengan scene lain.
+        // Do not SetActive(false) WorldRoot! Only hide MeshRenderer + Collider
+        // so that the ISDK component lifecycle remains identical to other scenes.
         HideAllVisuals();
         if (loadingUI != null) loadingUI.ShowValidating();
         StartColocationAttempt();
@@ -93,7 +93,7 @@ public class ColocationManager : NetworkBehaviour
 
         yield return new WaitForSeconds(trackingStabilizeDelay);
 
-        // Posisi target table = depan host, jarak kecil, di lantai
+        // Target table position = in front of host, short distance, on the floor
         Vector3 spawnPos = Vector3.zero;
         if (hostHeadTransform != null)
         {
@@ -106,7 +106,7 @@ public class ColocationManager : NetworkBehaviour
         }
         _pendingTableWorldPos = spawnPos;
 
-        // Anchor di-create di posisi target, rotation identity (hindari compound rotate)
+        // Anchor is created at the target position, rotation identity (avoid compound rotation)
         var anchorGo = new GameObject("HostAnchor");
         anchorGo.transform.SetPositionAndRotation(spawnPos, Quaternion.identity);
         _hostAnchor = anchorGo.AddComponent<OVRSpatialAnchor>();
@@ -151,7 +151,7 @@ public class ColocationManager : NetworkBehaviour
         Debug.Log("[ColocationManager] HOST: anchor shared. Waiting for client colocation result...");
         if (loadingUI != null) loadingUI.SetCustomMessage("Waiting for player 2", "Waiting for the other player to colocate...");
         OnAnchorReady?.Invoke(_hostAnchor.transform);
-        // Host TIDAK place table sekarang. Tunggu ClientColocationReadyServerRpc.
+        // Host does NOT place table now. Wait for ClientColocationReadyServerRpc.
     }
 
     private void FailHost(string reason)
@@ -163,9 +163,9 @@ public class ColocationManager : NetworkBehaviour
     }
 
     /// <summary>
-    /// Client kirim hasil colocation ke host.
-    /// success=true  -> host auto-place table di depan host (synced)
-    /// success=false -> host place table di local saja (client cancel)
+    /// Client sends colocation result to host.
+    /// success=true  -> host auto-places table in front of host (synced)
+    /// success=false -> host places table locally only (client cancel)
     /// </summary>
     [ServerRpc(RequireOwnership = false)]
     private void ClientColocationReadyServerRpc(bool success, ServerRpcParams rpcParams = default)
@@ -181,8 +181,8 @@ public class ColocationManager : NetworkBehaviour
         if (success)
         {
             Debug.Log("[ColocationManager] HOST: client colocation SUCCESS. Auto-placing table (synced).");
-            // localPos relatif anchor. Anchor di-create persis di _pendingTableWorldPos
-            // dengan rotation identity, jadi InverseTransformPoint = offset kecil (~0).
+            // localPos relative to anchor. Anchor is created exactly at _pendingTableWorldPos
+            // with rotation identity, so InverseTransformPoint = small offset (~0).
             Vector3 localPos = _hostAnchor != null
                 ? _hostAnchor.transform.InverseTransformPoint(_pendingTableWorldPos)
                 : Vector3.zero;
@@ -192,12 +192,12 @@ public class ColocationManager : NetworkBehaviour
         else
         {
             Debug.Log("[ColocationManager] HOST: client CANCELLED colocation. Host places table locally only.");
-            // Host place table di local tanpa sync (client tidak colocated)
+            // Host places table locally without sync (client not colocated)
             Vector3 localPos = _hostAnchor != null
                 ? _hostAnchor.transform.InverseTransformPoint(_pendingTableWorldPos)
                 : Vector3.zero;
             ApplyPlacementLocal(localPos);
-            // TIDAK broadcast ke client — client jalan sendiri via ContinueAnyway-nya
+            // DO NOT broadcast to client — client proceeds on its own via its ContinueAnyway
         }
     }
 
@@ -261,7 +261,7 @@ public class ColocationManager : NetworkBehaviour
         if (loadingUI != null) loadingUI.SetCustomMessage("Waiting for host", "Host is placing the table...");
         OnAnchorReady?.Invoke(_clientAnchor.transform);
 
-        // Kirim sinyal SUKSES ke host -> host auto-place table
+        // Send SUCCESS signal to host -> host auto-places table
         Debug.Log("[ColocationManager] CLIENT: colocation success, notifying host.");
         ClientColocationReadyServerRpc(true);
     }
@@ -302,7 +302,7 @@ public class ColocationManager : NetworkBehaviour
 
     private IEnumerator FinalizePlacementCoroutine()
     {
-        // 1 frame supaya WorldRoot.position update via LateUpdate
+        // 1 frame so that WorldRoot.position updates via LateUpdate
         yield return null;
 
         if (worldRoot != null)
@@ -382,28 +382,28 @@ public class ColocationManager : NetworkBehaviour
     }
 
     /// <summary>
-    /// Wire ke Cancel button OnClick di Inspector.
-    /// Client: kasih tahu host bahwa client cancel (host place table local),
-    /// lalu client place table di local sendiri tanpa colocation.
+    /// Wire to Cancel button OnClick in Inspector.
+    /// Client: notify host that client cancelled (host places table locally),
+    /// then client places table locally by themselves without colocation.
     /// </summary>
     public void ContinueAnyway()
     {
         _state = State.Skipped;
         _attemptInProgress = false;
 
-        // Kalau client, kasih tahu host supaya host tetap bisa main (place local)
+        // If client, notify host so the host can still play (place locally)
         if (!IsServer && NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
         {
             ClientColocationReadyServerRpc(false);
         }
 
-        // Place table di local (tanpa anchor sync). Pakai worldRoot posisi default
-        // atau di depan kamera lokal.
-        _placedSuccessfully = false; // matikan follow-anchor
+        // Place table locally (without anchor sync). Use worldRoot default position
+        // or in front of the local camera.
+        _placedSuccessfully = false; // disable follow-anchor
         if (worldRoot != null)
         {
             worldRoot.transform.SetParent(null);
-            // Posisikan di depan local head kalau ada referensi
+            // Position in front of the local head if reference exists
             if (hostHeadTransform != null)
             {
                 var fwd = hostHeadTransform.forward;

@@ -6,23 +6,23 @@ using Unity.Services.Authentication;
 using Unity.Services.Vivox;
 
 /// <summary>
-/// Manager voice chat 2D (group channel) menggunakan Unity Vivox.
+/// 2D voice chat manager (group channel) using Unity Vivox.
 ///
 /// LIFECYCLE:
 ///   - OnNetworkSpawn: Init Vivox -> Login -> JoinGroupChannel -> set transmit All.
-///   - OnNetworkDespawn (saat balik lobby): LeaveAllChannels -> Logout.
+///   - OnNetworkDespawn (when returning to lobby): LeaveAllChannels -> Logout.
 ///
-/// MODE: Open mic 2D (volume stabil, tidak depend posisi avatar).
+/// MODE: Open mic 2D (stable volume, does not depend on avatar position).
 ///
 /// SETUP:
-///   - GameObject ini WAJIB punya NetworkObject (scene-placed di GameScene).
-///   - Vivox harus di-enable di Unity Dashboard project (Cloud -> Vivox -> Set Up).
+///   - This GameObject MUST have a NetworkObject (scene-placed in GameScene).
+///   - Vivox must be enabled in the Unity Dashboard project (Cloud -> Vivox -> Set Up).
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class VoiceChatManager : NetworkBehaviour
 {
     [Header("Channel")]
-    [Tooltip("Nama channel TETAP. Semua peer di GameScene join channel ini.")]
+    [Tooltip("FIXED channel name. All peers in GameScene join this channel.")]
     [SerializeField] private string fixedChannelName = "ShapeVR-GameRoom";
 
     private string _channelName;
@@ -50,7 +50,7 @@ public class VoiceChatManager : NetworkBehaviour
 
         try
         {
-            // 1. UGS init + sign-in (defensif)
+            // 1. UGS init + sign-in (defensive)
             if (UnityServices.State != ServicesInitializationState.Initialized)
             {
                 await UnityServices.InitializeAsync();
@@ -96,7 +96,7 @@ public class VoiceChatManager : NetworkBehaviour
             await VivoxService.Instance.SetChannelTransmissionModeAsync(TransmissionMode.All);
             Debug.Log("[VoiceChatManager] TransmissionMode=All. TransmittingChannels=" + VivoxService.Instance.TransmittingChannels.Count);
 
-            // 6. Pastikan mic/speaker tidak muted
+            // 6. Ensure mic/speaker are not muted
             if (VivoxService.Instance.IsInputDeviceMuted)
             {
                 Debug.Log("[VoiceChatManager] Unmuting input device.");

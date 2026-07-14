@@ -33,7 +33,7 @@ public class LobbyManager : MonoBehaviour
 
     [Header("UI References")]
     [SerializeField] private TextMeshPro statusText;
-    [Tooltip("Parent container untuk semua tombol room. Di-hide saat loading UGS dan saat sudah dalam antrian.")]
+    [Tooltip("Parent container for all room buttons. Hidden when loading UGS and when already in queue.")]
     [SerializeField] private GameObject roomButtonsRoot;
 
     [Header("Lobby Settings")]
@@ -165,7 +165,7 @@ public class LobbyManager : MonoBehaviour
             return;
         }
 
-        // Intercept dengan ID Input Overlay sebelum memulai matchmaking
+        // Intercept with ID Input Overlay before starting matchmaking
         LobbyIdInputOverlay overlay = LobbyIdInputOverlay.Instance;
         if (overlay == null)
         {

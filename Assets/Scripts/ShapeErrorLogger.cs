@@ -63,21 +63,54 @@ public class ShapeErrorLogger : MonoBehaviour
 
     public void ReportWrongRelease(string shapeName)
     {
+        ReportWrongReleaseDetailed(shapeName, "wrong position");
+    }
+
+    public void ReportWrongReleaseDetailed(string shapeName, string targetName)
+    {
         wrongReleaseCount++;
+
+        string cleanShape = CleanShapeName(shapeName);
+        string cleanTarget = CleanShapeName(targetName);
+
+        // English format: "Donut placed into Triangle"
+        string mistakeDetail = $"{cleanShape} placed into {cleanTarget}";
 
         if (PlayerDataSaver.Instance != null)
         {
-            PlayerDataSaver.Instance.RecordMistake(shapeName);
+            PlayerDataSaver.Instance.RecordMistake(mistakeDetail);
         }
 
-        string cleanName = string.IsNullOrWhiteSpace(shapeName) ? "Shape" : shapeName;
-        string message = $"Error: {cleanName} placed in wrong position\nMistakes: {wrongReleaseCount}";
+        string message = $"Error: {cleanShape} placed in {cleanTarget}\nMistakes: {wrongReleaseCount}";
         Debug.LogWarning($"[ShapeErrorLogger] {message.Replace('\n', ' ')}");
 
         if (_toastRoutine != null)
             StopCoroutine(_toastRoutine);
 
         _toastRoutine = StartCoroutine(ShowToast(message));
+    }
+
+    private string CleanShapeName(string rawName)
+    {
+        if (string.IsNullOrWhiteSpace(rawName)) return "Shape";
+        
+        // Remove "(Clone)" or " (Clone)" or trailing space
+        string clean = rawName.Replace("(Clone)", "").Replace(" (Clone)", "").Trim();
+        
+        // Remove suffix numbers like " (1)" or " 1" using the first space
+        int index = clean.IndexOf(" ");
+        if (index > 0)
+        {
+            clean = clean.Substring(0, index);
+        }
+        
+        // Capitalize the first letter
+        if (clean.Length > 0)
+        {
+            clean = char.ToUpper(clean[0]) + clean.Substring(1);
+        }
+        
+        return clean;
     }
 
     public void TotalMistake()

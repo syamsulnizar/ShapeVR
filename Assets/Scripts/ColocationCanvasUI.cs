@@ -2,22 +2,22 @@ using UnityEngine;
 using TMPro;
 
 /// <summary>
-/// UI panel untuk colocation. Wire-able dari Inspector.
+/// UI panel for colocation. Wire-able from the Inspector.
 ///
-/// Cara setup:
+/// Setup instructions:
 ///   1. Drag GameObject RetryButton -> OnClick() -> ColocationManager.RetryColocation
 ///   2. Drag GameObject ContinueButton -> OnClick() -> ColocationManager.ContinueAnyway
 ///
-/// Public method di sini hanya untuk ColocationManager memanggil dari script.
-/// Tombol UI di-wire langsung ke ColocationManager via Inspector.
+/// Public methods here are only for ColocationManager to call from the script.
+/// UI buttons are wired directly to ColocationManager via the Inspector.
 /// </summary>
 public class ColocationCanvasUI : MonoBehaviour
 {
-    [Header("Refs (wire di Inspector)")]
+    [Header("Refs (wired in Inspector)")]
     [SerializeField] private GameObject panel;
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private TMP_Text reasonText;
-    [Tooltip("Parent GameObject yang berisi RetryButton + ContinueButton. Akan SetActive(true/false).")]
+    [Tooltip("Parent GameObject containing RetryButton + ContinueButton. Will SetActive(true/false).")]
     [SerializeField] private GameObject buttonsRoot;
 
     [Header("Strings")]
