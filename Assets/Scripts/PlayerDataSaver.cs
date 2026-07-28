@@ -12,8 +12,9 @@ public class PlayerDataSaver : NetworkBehaviour
 {
     public static PlayerDataSaver Instance { get; private set; }
 
-    // Save the ID input from Lobby
+    // Save the ID and Pair ID input from Lobby
     public static string playerInputId = "";
+    public static string playerInputPairId = "";
 
     [Header("Google Sheets Integration")]
     [Tooltip("Web App URL from Google Apps Script.")]
@@ -215,7 +216,7 @@ public class PlayerDataSaver : NetworkBehaviour
         string finalPairId = pairId;
         if (string.IsNullOrEmpty(finalPairId))
         {
-            finalPairId = GetLocalFallbackPairId(persistentPath, sessionGuid);
+            finalPairId = !string.IsNullOrEmpty(playerInputPairId) ? playerInputPairId : GetLocalFallbackPairId(persistentPath, sessionGuid);
         }
 
         // Mistake logs are wrapped in double quotes ("...") so that commas inside do not break the CSV columns
@@ -226,7 +227,7 @@ public class PlayerDataSaver : NetworkBehaviour
         string projectPath = Path.Combine(Application.dataPath, "PlayerData.csv");
         if (string.IsNullOrEmpty(playerId) || string.IsNullOrEmpty(pairId))
         {
-            finalPairId = GetLocalFallbackPairId(projectPath, sessionGuid);
+            finalPairId = !string.IsNullOrEmpty(playerInputPairId) ? playerInputPairId : GetLocalFallbackPairId(projectPath, sessionGuid);
         }
         csvLine = $"{finalPlayerId},{finalPairId},{playerRole},{playTime},{location},{completionTime:0.00},{correct},{incorrect},\"{mistakeLogsStr}\",{sessionGuid}";
         WriteRowToFile(projectPath, header, csvLine);
@@ -304,6 +305,7 @@ public class PlayerDataSaver : NetworkBehaviour
         PlayerDataPayload payload = new PlayerDataPayload
         {
             playerId = string.IsNullOrEmpty(playerInputId) ? "Player" : playerInputId,
+            pairId = playerInputPairId,
             playerRole = playerRole,
             playTime = playTime,
             location = location,
@@ -372,6 +374,7 @@ public class PlayerDataSaver : NetworkBehaviour
     private class PlayerDataPayload
     {
         public string playerId;
+        public string pairId;
         public string playerRole;
         public string playTime;
         public string location;

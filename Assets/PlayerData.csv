@@ -13,3 +13,4 @@ PlayerID,PlayerRole,PlayTimeGMT,Location,CompletionTime,CorrectAnswers,Incorrect
 4,2,Player 2,2026-06-30 01:23:34 GMT,Virtual Mic On,27.72,9,2,"Detik ke-3s (Plus), Detik ke-7s (Diamond)",fd0524b7-6104-4b5e-a8da-eb89eca9c746
 3,2,Player 1,2026-06-30 01:23:34 GMT,Virtual Mic On,28.72,0,0,"Tidak ada kesalahan",fd0524b7-6104-4b5e-a8da-eb89eca9c746
 UUUM,12,Player 1,2026-07-14 17:40:01 GMT,Virtual Choose Room-Office,76.34,0,0,"No mistakes",f5bd2f7b-0e37-4d20-a03d-eec773061fa9
+G,CHUJ,Player 2,2026-07-28 03:31:08 GMT,Virtual Choose Room-Office,20.89,0,0,"No mistakes",873b445f-a3d6-4eea-8cd3-bad1cbbda568

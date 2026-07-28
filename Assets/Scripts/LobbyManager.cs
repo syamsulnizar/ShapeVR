@@ -25,6 +25,13 @@ using Meta.XR.MultiplayerBlocks.Shared;
 /// </summary>
 public class LobbyManager : MonoBehaviour
 {
+    public static LobbyManager Instance { get; private set; }
+
+    private void Awake()
+    {
+        Instance = this;
+    }
+
     [Header("Scene Settings")]
     [SerializeField] private string passthroughScene = "Passthrough";
     [SerializeField] private string virtualMicOnScene = "Virtual Mic On";
@@ -56,6 +63,7 @@ public class LobbyManager : MonoBehaviour
     private bool _ugsReady = false;
     private string _selectedRoomType;
     private string _selectedSceneName;
+    private string _selectedLobbyId = null;
     private Coroutine _pollCoroutine;
     private Coroutine _heartbeatCoroutine;
 
@@ -212,16 +220,14 @@ public class LobbyManager : MonoBehaviour
     {
         try
         {
-            var existingLobbyId = await TryFindLobbyAsync(_selectedRoomType);
-
-            if (!string.IsNullOrEmpty(existingLobbyId))
+            if (!string.IsNullOrEmpty(_selectedLobbyId))
             {
-                Debug.Log($"[LobbyManager] Found existing lobby {existingLobbyId} for {_selectedRoomType} \u2014 joining as client.");
-                await JoinExistingLobbyAsync(existingLobbyId);
+                Debug.Log($"[LobbyManager] Joining pre-selected lobby {_selectedLobbyId} for {_selectedRoomType} — joining as client.");
+                await JoinExistingLobbyAsync(_selectedLobbyId);
             }
             else
             {
-                Debug.Log($"[LobbyManager] No lobby found for {_selectedRoomType} \u2014 creating as host.");
+                Debug.Log($"[LobbyManager] No lobby pre-selected — creating as host with PairID {PlayerDataSaver.playerInputPairId}.");
                 await CreateLobbyAsHostAsync();
             }
         }
@@ -288,6 +294,12 @@ public class LobbyManager : MonoBehaviour
                     new DataObject(
                         visibility: DataObject.VisibilityOptions.Member,
                         value: joinCode)
+                },
+                {
+                    "pairId",
+                    new DataObject(
+                        visibility: DataObject.VisibilityOptions.Public,
+                        value: PlayerDataSaver.playerInputPairId)
                 }
             }
         };
@@ -510,5 +522,38 @@ public class LobbyManager : MonoBehaviour
     {
         if (statusText != null) statusText.text = s;
         Debug.Log($"[LobbyManager] Status: {s}");
+    }
+
+    public async void OnPlayerIdValidated(string validatedId, string roomType, string sceneName)
+    {
+        try
+        {
+            var existingLobbyId = await TryFindLobbyAsync(roomType);
+
+            if (!string.IsNullOrEmpty(existingLobbyId))
+            {
+                var lobby = await LobbyService.Instance.GetLobbyAsync(existingLobbyId);
+                string lobbyPairId = "";
+                if (lobby.Data != null && lobby.Data.ContainsKey("pairId"))
+                {
+                    lobbyPairId = lobby.Data["pairId"].Value;
+                }
+                
+                Debug.Log($"[LobbyManager] Found existing lobby {existingLobbyId} with PairID {lobbyPairId} — reserving ID.");
+                _selectedLobbyId = existingLobbyId;
+                LobbyIdInputOverlay.Instance.ReserveClient(validatedId, lobbyPairId);
+            }
+            else
+            {
+                Debug.Log("[LobbyManager] No lobby found — prompting Host to input PairID.");
+                _selectedLobbyId = null;
+                LobbyIdInputOverlay.Instance.PromptForPairId(validatedId);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[LobbyManager] OnPlayerIdValidated failed: {e.Message}");
+            LobbyIdInputOverlay.Instance.ShowStatusError($"Lobby check failed: {e.Message}");
+        }
     }
 }

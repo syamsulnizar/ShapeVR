@@ -6977,7 +6977,7 @@ Transform:
   m_GameObject: {fileID: 291459249}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.1, y: 0, z: -0.022999913}
+  m_LocalPosition: {x: 0, y: 0, z: -0.022999913}
   m_LocalScale: {x: 0.05, y: 0.05, z: 0.05}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -18309,7 +18309,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &651599244
 Transform:
   m_ObjectHideFlags: 0
@@ -24938,7 +24938,7 @@ Transform:
   m_GameObject: {fileID: 916513918}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.1, y: -0.07, z: -0.022999913}
+  m_LocalPosition: {x: 0, y: -0.07, z: -0.022999913}
   m_LocalScale: {x: 0.05, y: 0.05, z: 0.05}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -38689,7 +38689,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1466561600
 Transform:
   m_ObjectHideFlags: 0
@@ -55012,10 +55012,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e749e78edf8eeb944abae4d6f39c739b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LobbyIdInputOverlay
-  googleSheetsUrl: https://script.google.com/macros/s/AKfycbyWE2ZoKenCJyIehtyDxyPrlNfbE9iXurXoZuhrnlYYF2kOlzWS6nN9bBdiU--CZMXeJw/exec
+  googleSheetsUrl: https://script.google.com/macros/s/AKfycbwv1CnBPQOzUjnPnjHlpakZOH5uqAWrurYqXQigk-aQI5Qz1bbrqSNCklu_V88-kLMqqg/exec
   keyboardContainer: {fileID: 947652674}
   idDisplayText: {fileID: 854809949}
   statusText: {fileID: 1437076816}
+  titleText: {fileID: 0}
   submitButtonObj: {fileID: 1508868833}
   currentInput: 
   onValidIDEvent:
